@@ -1,0 +1,11 @@
+# Plain static site: no build step, serve the repo root as-is.
+[build]
+  publish = "."
+  command = "echo 'Static site - no build step'"
+
+[[headers]]
+  for = "/*"
+  [headers.values]
+    X-Content-Type-Options = "nosniff"
+    X-Frame-Options = "DENY"
+    Referrer-Policy = "strict-origin-when-cross-origin"
