@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Minesweeper</title>
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <main class="game">
+    <h1>Minesweeper</h1>
+
+    <div class="status-bar">
+      <div class="counter" title="Mines remaining">💣 <span id="mines-left">6</span></div>
+      <button id="reset" class="reset" title="New game">🙂</button>
+      <div class="counter" title="Time">⏱ <span id="timer">0</span></div>
+    </div>
+
+    <div id="board" class="board" role="grid" aria-label="Minesweeper board"></div>
+
+    <p id="message" class="message">Click any cell to start.</p>
+    <p class="hint">Left-click to reveal · Right-click (or long-press) to flag</p>
+  </main>
+
+  <script src="script.js"></script>
+</body>
+</html>
