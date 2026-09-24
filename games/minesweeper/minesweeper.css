@@ -1,0 +1,93 @@
+.mine-board {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 5px;
+  padding: 6px;
+  border-radius: 6px;
+  background: #2a1a12;
+  -webkit-user-select: none;
+  user-select: none;
+  -webkit-touch-callout: none;
+}
+
+.cell {
+  aspect-ratio: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: none;
+  border-radius: 5px;
+  font-weight: 700;
+  font-size: clamp(1.1rem, 6vw, 1.6rem);
+  color: var(--ink);
+  background: linear-gradient(180deg, #8a5a33, #6e4526);
+  box-shadow: inset 0 2px 0 rgba(255, 255, 255, 0.18), inset 0 -3px 0 rgba(0, 0, 0, 0.3);
+  cursor: pointer;
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.cell:hover:not(.revealed) {
+  filter: brightness(1.12);
+}
+
+.cell.revealed {
+  background: #e6cf9c;
+  box-shadow: inset 0 1px 3px rgba(0, 0, 0, 0.25);
+  cursor: default;
+}
+
+.cell.mine { background: #c9573f; }
+.cell.exploded { background: #e8903a; }
+.cell.wrong-flag { background: #b89a74; }
+
+.cell[data-n="1"] { color: #2f5f9e; }
+.cell[data-n="2"] { color: #4f7a2f; }
+.cell[data-n="3"] { color: #b8442e; }
+.cell[data-n="4"] { color: #5a3a8a; }
+.cell[data-n="5"] { color: #8a3a1e; }
+.cell[data-n="6"] { color: #2a7a74; }
+.cell[data-n="7"] { color: #2b1d12; }
+.cell[data-n="8"] { color: #6b5540; }
+
+.face-btn {
+  min-width: 58px;
+  font-size: 1.7rem;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.face-btn:hover {
+  filter: brightness(1.05);
+}
+
+.mode-toggle {
+  padding: 8px 18px;
+  border: 1px solid rgba(60, 35, 15, 0.5);
+  border-radius: 999px;
+  font-family: var(--font-type);
+  font-size: 0.95rem;
+  color: var(--ink);
+  background: linear-gradient(180deg, var(--parchment), var(--parchment-2));
+  box-shadow: 0 2px 0 rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.mode-toggle[aria-pressed="true"] {
+  color: var(--parchment);
+  background: linear-gradient(180deg, var(--rust), #8a3020);
+}
+
+.mine-message {
+  min-height: 1.4em;
+  margin: 0;
+  font-family: var(--font-type);
+  font-size: 1rem;
+  text-align: center;
+  color: var(--parchment-2);
+}
+
+.mine-message.win { color: var(--gold); }
+.mine-message.lose { color: #f08a6e; }

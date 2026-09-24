@@ -2,26 +2,81 @@
 <html lang="en">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Minesweeper</title>
-  <link rel="stylesheet" href="style.css">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#3d2616">
+  <title>The Game Bar</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤠</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&family=Zilla+Slab:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="css/western.css">
 </head>
 <body>
-  <main class="game">
-    <h1>Minesweeper</h1>
-
-    <div class="status-bar">
-      <div class="counter" title="Mines remaining">💣 <span id="mines-left">6</span></div>
-      <button id="reset" class="reset" title="New game">🙂</button>
-      <div class="counter" title="Time">⏱ <span id="timer">0</span></div>
+  <header class="saloon-header">
+    <div class="sign">
+      <p class="sign-small">Est. 1886</p>
+      <h1>The Game Bar</h1>
+      <p class="sign-small">Saloon &amp; Arcade</p>
     </div>
+    <p class="tagline">Pull up a stool, partner. Pick your game.</p>
+  </header>
 
-    <div id="board" class="board" role="grid" aria-label="Minesweeper board"></div>
+  <main class="counter-panel">
+    <nav class="game-grid" aria-label="Games">
+      <a class="game-card" href="games/snake/index.html" data-game="snake" style="--accent: var(--sage)">
+        <span class="card-kicker">Arrow keys</span>
+        <span class="card-title">Snake</span>
+        <span class="card-blurb">Wrangle the rattler.</span>
+        <span class="card-best"></span>
+      </a>
+      <a class="game-card" href="games/breakout/index.html" data-game="breakout" style="--accent: var(--rust)">
+        <span class="card-kicker">Mouse</span>
+        <span class="card-title">Breakout</span>
+        <span class="card-blurb">Bust up the adobe.</span>
+        <span class="card-best"></span>
+      </a>
+      <a class="game-card" href="games/flap/index.html" data-game="flap" style="--accent: var(--gold)">
+        <span class="card-kicker">One key</span>
+        <span class="card-title">Flap</span>
+        <span class="card-blurb">Dodge the saguaros.</span>
+        <span class="card-best"></span>
+      </a>
+      <a class="game-card" href="games/asteroids/index.html" data-game="asteroids" style="--accent: var(--sky)">
+        <span class="card-kicker">Turn + fire</span>
+        <span class="card-title">Asteroids</span>
+        <span class="card-blurb">Rocks fallin' from the sky.</span>
+        <span class="card-best"></span>
+      </a>
+      <a class="game-card" href="games/missile/index.html" data-game="missile" style="--accent: var(--ember)">
+        <span class="card-kicker">Click to aim</span>
+        <span class="card-title">Missile</span>
+        <span class="card-blurb">Defend the frontier towns.</span>
+        <span class="card-best"></span>
+      </a>
+      <a class="game-card" href="games/minesweeper/index.html" data-game="minesweeper" style="--accent: var(--turquoise)">
+        <span class="card-kicker">Click + flag</span>
+        <span class="card-title">Minesweeper</span>
+        <span class="card-blurb">Mind the dynamite.</span>
+        <span class="card-best"></span>
+      </a>
+    </nav>
 
-    <p id="message" class="message">Click any cell to start.</p>
-    <p class="hint">Left-click to reveal · Right-click (or long-press) to flag</p>
+    <div class="panel-rule"></div>
+    <p class="panel-foot">More games comin' down the trail.</p>
   </main>
 
-  <script src="script.js"></script>
+  <footer class="site-footer">The Game Bar · No outlaws allowed</footer>
+
+  <script src="js/arcade.js"></script>
+  <script>
+    // Show each game's best score on its card
+    document.querySelectorAll("[data-game]").forEach((card) => {
+      const game = card.dataset.game;
+      const best = Arcade.getBest(game);
+      if (!best) return;
+      card.querySelector(".card-best").textContent =
+        game === "minesweeper" ? `Best ${best}s` : `Best ${best}`;
+    });
+  </script>
 </body>
 </html>

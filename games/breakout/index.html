@@ -1,0 +1,43 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#3d2616">
+  <title>Breakout · The Game Bar</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🧱</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&family=Zilla+Slab:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../css/western.css">
+</head>
+<body style="--accent: var(--rust)">
+  <nav class="topbar"><a class="back-link" href="../../index.html">← Back to the saloon</a></nav>
+
+  <header class="game-heading">
+    <p class="kicker">Mouse</p>
+    <h1>Breakout</h1>
+  </header>
+
+  <main class="stage">
+    <div class="hud">
+      <div class="hud-item"><span class="hud-label">Score</span><span class="hud-value" id="score">0</span></div>
+      <div class="hud-item"><span class="hud-label">Lives</span><span class="hud-value" id="lives">3</span></div>
+      <div class="hud-item"><span class="hud-label">Best</span><span class="hud-value" id="best">0</span></div>
+    </div>
+
+    <div class="screen" style="--w: 480px; --aspect: 0.857">
+      <canvas id="game" width="480" height="560" aria-label="Breakout game"></canvas>
+      <div class="overlay" id="overlay"><h2>Breakout</h2><p></p></div>
+    </div>
+
+    <p class="controls">
+      <span class="kbd-only">Move the mouse (or ← →) to slide the plank · Click or Space to launch</span>
+      <span class="touch-only">Drag anywhere on the board to slide the plank · Tap to launch</span>
+    </p>
+  </main>
+
+  <script src="../../js/arcade.js"></script>
+  <script src="breakout.js"></script>
+</body>
+</html>

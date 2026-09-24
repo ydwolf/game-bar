@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+  <meta name="theme-color" content="#3d2616">
+  <title>Missile · The Game Bar</title>
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>💥</text></svg>">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Rye&family=Special+Elite&family=Zilla+Slab:ital,wght@0,400;0,600;0,700;1,400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="../../css/western.css">
+</head>
+<body style="--accent: var(--ember)">
+  <nav class="topbar"><a class="back-link" href="../../index.html">← Back to the saloon</a></nav>
+
+  <header class="game-heading">
+    <p class="kicker">Click to aim</p>
+    <h1>Missile</h1>
+  </header>
+
+  <main class="stage">
+    <div class="hud">
+      <div class="hud-item"><span class="hud-label">Score</span><span class="hud-value" id="score">0</span></div>
+      <div class="hud-item"><span class="hud-label">Wave</span><span class="hud-value" id="wave">1</span></div>
+      <div class="hud-item"><span class="hud-label">Ammo</span><span class="hud-value" id="ammo">16</span></div>
+      <div class="hud-item"><span class="hud-label">Best</span><span class="hud-value" id="best">0</span></div>
+    </div>
+
+    <div class="screen" style="--w: 640px; --aspect: 1.333">
+      <canvas id="game" width="640" height="480" aria-label="Missile defense game"></canvas>
+      <div class="overlay" id="overlay"><h2>Missile</h2><p></p></div>
+    </div>
+
+    <p class="controls">
+      <span class="kbd-only">Click where you want a shell to burst · Catch meteors in the blast</span>
+      <span class="touch-only">Tap where you want a shell to burst · Catch meteors in the blast</span>
+    </p>
+  </main>
+
+  <script src="../../js/arcade.js"></script>
+  <script src="missile.js"></script>
+</body>
+</html>
