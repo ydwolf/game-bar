@@ -1,0 +1,8 @@
+{
+  "name": "game-bar",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "fairness": "node tests/fairness.js"
+  }
+}

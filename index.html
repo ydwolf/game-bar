@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
   <meta name="theme-color" content="#3d2616">
+  <meta name="description" content="A western saloon arcade cabinet: six two-sided games you can play against a friend or the computer.">
   <title>The Game Bar</title>
   <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🤠</text></svg>">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -12,71 +13,58 @@
   <link rel="stylesheet" href="css/western.css">
 </head>
 <body>
-  <header class="saloon-header">
-    <div class="sign">
-      <p class="sign-small">Est. 1886</p>
-      <h1>The Game Bar</h1>
-      <p class="sign-small">Saloon &amp; Arcade</p>
-    </div>
-    <p class="tagline">Pull up a stool, partner. Pick your game.</p>
-  </header>
+  <!-- Menu -->
+  <section id="view-menu" class="view">
+    <header class="saloon-header">
+      <div class="sign">
+        <p class="sign-small">Est. 1886</p>
+        <h1>The Game Bar</h1>
+        <p class="sign-small">Saloon &amp; Arcade</p>
+      </div>
+      <p class="tagline">Pull up a stool, partner. Every game has two sides — pick yours.</p>
+    </header>
 
-  <main class="counter-panel">
-    <nav class="game-grid" aria-label="Games">
-      <a class="game-card" href="games/snake/index.html" data-game="snake" style="--accent: var(--sage)">
-        <span class="card-kicker">Arrow keys</span>
-        <span class="card-title">Snake</span>
-        <span class="card-blurb">Wrangle the rattler.</span>
-        <span class="card-best"></span>
-      </a>
-      <a class="game-card" href="games/breakout/index.html" data-game="breakout" style="--accent: var(--rust)">
-        <span class="card-kicker">Mouse</span>
-        <span class="card-title">Breakout</span>
-        <span class="card-blurb">Bust up the adobe.</span>
-        <span class="card-best"></span>
-      </a>
-      <a class="game-card" href="games/flap/index.html" data-game="flap" style="--accent: var(--gold)">
-        <span class="card-kicker">One key</span>
-        <span class="card-title">Flap</span>
-        <span class="card-blurb">Dodge the saguaros.</span>
-        <span class="card-best"></span>
-      </a>
-      <a class="game-card" href="games/asteroids/index.html" data-game="asteroids" style="--accent: var(--sky)">
-        <span class="card-kicker">Turn + fire</span>
-        <span class="card-title">Asteroids</span>
-        <span class="card-blurb">Rocks fallin' from the sky.</span>
-        <span class="card-best"></span>
-      </a>
-      <a class="game-card" href="games/missile/index.html" data-game="missile" style="--accent: var(--ember)">
-        <span class="card-kicker">Click to aim</span>
-        <span class="card-title">Missile</span>
-        <span class="card-blurb">Defend the frontier towns.</span>
-        <span class="card-best"></span>
-      </a>
-      <a class="game-card" href="games/minesweeper/index.html" data-game="minesweeper" style="--accent: var(--turquoise)">
-        <span class="card-kicker">Click + flag</span>
-        <span class="card-title">Minesweeper</span>
-        <span class="card-blurb">Mind the dynamite.</span>
-        <span class="card-best"></span>
-      </a>
+    <main class="counter-panel">
+      <nav class="game-grid" id="game-grid" aria-label="Games"></nav>
+      <div class="panel-rule"></div>
+      <p class="panel-foot">Play a friend on the same device, or let the house take the other seat.</p>
+    </main>
+
+    <footer class="site-footer">The Game Bar · No outlaws allowed</footer>
+  </section>
+
+  <!-- Seat picker -->
+  <section id="view-setup" class="view" hidden>
+    <nav class="topbar"><a class="back-link" href="#/">← Back to the bar</a></nav>
+    <main id="setup" class="setup"></main>
+  </section>
+
+  <!-- The table -->
+  <section id="view-play" class="view" hidden>
+    <nav class="topbar">
+      <a class="back-link" href="#/">← Leave the table</a>
+      <div class="play-heading"><span class="kicker" id="play-kicker"></span><span class="play-title" id="play-title"></span></div>
+      <button class="back-link" id="pause-btn" type="button">Pause</button>
     </nav>
 
-    <div class="panel-rule"></div>
-    <p class="panel-foot">More games comin' down the trail.</p>
-  </main>
+    <main class="table" id="table">
+      <div class="touch-pad flipped" id="pad-b" hidden></div>
+      <div class="seat seat-b" id="seat-b"></div>
+      <div class="screen" id="screen">
+        <canvas id="game" width="480" height="480" aria-label="Game board"></canvas>
+        <div class="overlay hidden" id="overlay" role="dialog" aria-live="polite">
+          <h2></h2>
+          <p></p>
+          <div class="overlay-buttons"></div>
+        </div>
+      </div>
+      <p class="status" id="status" aria-live="polite"></p>
+      <div class="seat seat-a" id="seat-a"></div>
+      <div class="touch-pad" id="pad-a" hidden></div>
+      <p class="controls" id="controls"></p>
+    </main>
+  </section>
 
-  <footer class="site-footer">The Game Bar · No outlaws allowed</footer>
-
-  <script src="js/arcade.js"></script>
-  <script>
-    // Show each game's best score on its card
-    document.querySelectorAll("[data-game]").forEach((card) => {
-      const game = card.dataset.game;
-      const best = Arcade.getBest(game);
-      if (!best) return;
-      card.querySelector(".card-best").textContent =
-        game === "minesweeper" ? `Best ${best}s` : `Best ${best}`;
-    });
-  </script>
+  <script type="module" src="js/main.js"></script>
 </body>
 </html>

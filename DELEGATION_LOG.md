@@ -97,3 +97,42 @@ A record of what I asked Claude (Claude Code, desktop app) to do, what it produc
 **Produced:** This file, with entries 1–6 filled in from the session so far.
 
 **Verified:** I read through it.
+
+---
+
+## 8. Build the site to the rubric — 2026-09-23
+
+**Asked:** "Build the website as specified," then push to GitHub so my CI/CD deploys it. Imitation stays on hold.
+
+**Produced:**
+- Rebuilt the site as **one page** with three views: the menu, a seat picker (Human or Computer for each side), and the game table. Matches are first to 3 rounds.
+- Six two-sided games: Snake (Snake vs Pear), Breakout (Paddle vs Mason), Splat (Bird vs Planter), Asteroids (Ship vs Rock thrower), Missile Command (Defender vs Raider), and Gold Rush, a western Pac-Man (Prospector vs Bandit) as my game of choice.
+- All four seat combinations work: human vs computer either way round, two humans on one device (split keyboard, or two phone pads with the far one flipped), and computer vs computer.
+- Every side is driven by the same `Input` object whether a person or a bot is playing, so bots use the same controls and speed limits as a human.
+- Difficulty ramps each round: game numbers change per level and the computer's skill rises from 0.3 to 0.85.
+- `tests/fairness.js`, which plays hundreds of computer-vs-computer rounds of each game at each level.
+
+**Changed from the plan along the way (found by the fairness test):**
+- **Breakout:** "clear the whole wall" was nearly impossible in time (a clean clear took ~100 s even with no Mason). The goal became **break through**: the Paddle wins by getting the ball through the wall.
+- **Splat:** the gap lock time has to be much shorter than 1 s (0.52 s down to 0.30 s by level), or the Bird always wins. The gap is a fixed 130 px.
+- **Missile Command:** the Raider wins by flattening **4 of 6** towns. Needing all 6 made the Defender unbeatable.
+- **Gold Rush:** added **spurs** (a short sprint) for the Bandit. A lone chaser in a looping maze couldn't keep up otherwise.
+- Several bots were fixed after the test showed them misbehaving. The Snake and Splat bots crashed on their own, the Defender bot aimed with superhuman precision, and the Raider bot never used salvos or splits.
+
+**Verified:**
+- **Fairness:** final computer-vs-computer results (300–400 rounds per level). Every game at every level lands between 36% and 62% for side A:
+
+  | Game | L1 | L2 | L3 | L4 | L5 |
+  |---|---|---|---|---|---|
+  | Snake (Snake wins) | 48% | 39% | 38% | 44% | 57% |
+  | Breakout (Paddle) | 36% | 39% | 43% | 46% | 62% |
+  | Splat (Bird) | 50% | 57% | 48% | 61% | 45% |
+  | Asteroids (Ship) | 51% | 47% | 46% | 54% | 49% |
+  | Missile (Defender) | 39% | 42% | 46% | 47% | 53% |
+  | Gold Rush (Prospector) | 44% | 49% | 55% | 53% | 41% |
+
+- **In the browser:** all six games played computer vs computer on the real page with no errors, through to a match winner. Claude screenshotted each game mid-round to check the art.
+- **Human play:** Claude played Snake as a human with simulated key presses: the rounds, score, match-end screen and Swap seats all worked.
+- **Phones:** phone layout was checked at 375×812 with touch emulation, including two players on one phone. Pressing the on-screen Throw button fired a rock.
+- *Caveat:* the browser pane was hidden during testing, which pauses animation, so frames were stepped by hand instead of watched live.
+- *Not tested:* a real phone, or two real people playing.
