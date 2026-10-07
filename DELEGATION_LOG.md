@@ -136,3 +136,43 @@ A record of what I asked Claude (Claude Code, desktop app) to do, what it produc
 - **Phones:** phone layout was checked at 375×812 with touch emulation, including two players on one phone. Pressing the on-screen Throw button fired a rock.
 - *Caveat:* the browser pane was hidden during testing, which pauses animation, so frames were stepped by hand instead of watched live.
 - *Not tested:* a real phone, or two real people playing.
+
+---
+
+## 9. Turn my own game into the seventh cabinet game — 2026-10-07
+
+**Asked:** Read my Notion project docs for *Life in the Colony* (Game Design Document, Dev Documentation, Folder Structure, Brainstorming Log) and make a dumbed-down version as a seventh game. When Claude first proposed using only the decided parts, I said to take everything, including the undecided ideas.
+
+**Produced:** `js/games/colony.js`, a two-sided pocket version of the game, added to the cabinet as a seventh card (Gold Rush is untouched).
+- **Founder:** your soft win ("Ikur"), meaning every required profession working on its own. Gather wood, ore and crops with a timing minigame, clear overgrown lots, build, hire visitors at the Tavern, forge tools that wear out, and cook. Anything a villager does, the Founder can do by hand until someone is hired for it.
+- **Raider:** the GDD's "prosperity attracts raids." Notoriety is earned faster as the colony grows and spent on small or big bandit raids that damage buildings and wound villagers. Raids are a setback, never a reset.
+- **From the docs (decided):**
+  - the 4-slot bag with stacks of 20
+  - the Tavern and its hiring fee
+  - the Player Hall as the stockpile
+  - villager tools that wear out, plus the player forging the first one
+  - Couriers ferrying from the huts
+  - the Builder repairing after raids and building houses
+  - the Healer cutting recovery time
+  - soldiers fighting raids
+  - player tool levels upgraded at the Smithy (it needs ore *and* a working Blacksmith)
+  - overgrown starting lots
+  - villager AI built as "decide with an ordered provider list, execute with a task queue" (the Dev Documentation's two layers)
+- **From the brainstorm (undecided):**
+  - the eight soft-win professions
+  - the sibling villages (Forager, Mechanic, Warrior, Magician), whose origin filters which jobs a villager can take
+  - your workforce shaping who visits
+  - visitors who leave if ignored
+  - combat as a minigame through the colony ("Shields up!" when a bandit winds up)
+  - minigames that get easier with better tools
+  - the Cook holding meals that villagers walk over to eat
+- **Levels switch systems on:** tools first, then hunger, then housing, then sickness, ending with all eight professions required.
+
+**Verified:**
+- **Founder bot alone:** with no Raider, it reached the soft win at every level. The first version took 3–11 minutes, so the economy was sped up until it took 1¼–2½ minutes.
+- **Raid balance:** the first balance run had the Raider launching 12–35 raids per round and winning almost every time. Raids were made rarer and costlier, then notoriety was tuned per level.
+- **Fairness:** computer-vs-computer over 120–200 rounds per level gives the Founder **46–59%** at every level.
+- **In the browser:** computer-vs-computer ran on the real page with no errors, and the art was checked by screenshot. Claude then played the Founder as a human with simulated key presses: walk to the forest, chop with the minigame (+2 logs per success), walk back, and store them at the Hall.
+- **Bug found and fixed:** the Founder started just outside the Hall's reach. Buildings now have a larger reach than trees.
+- *Not tested:* a real person playing a whole round, or phones for this game specifically.
+- *Rubric note:* with Imitation still to come, there would be 8 games. The rubric allows one "game of your choice," so Colony may need to replace Gold Rush.

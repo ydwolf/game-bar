@@ -8,7 +8,7 @@
 import { createRoundSet, tick } from "../js/engine.js";
 import { skillAt } from "../js/util.js";
 
-const ALL = ["snake", "breakout", "splat", "asteroids", "missile", "goldrush"];
+const ALL = ["snake", "breakout", "splat", "asteroids", "missile", "goldrush", "colony"];
 const [only, roundsArg] = process.argv.slice(2);
 const ROUNDS = Number(roundsArg) || 200;
 const DT = 1 / 60;

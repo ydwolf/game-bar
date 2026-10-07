@@ -4,6 +4,7 @@ import splat from "./splat.js";
 import asteroids from "./asteroids.js";
 import missile from "./missile.js";
 import goldrush from "./goldrush.js";
+import colony from "./colony.js";
 
-export const GAMES = [snake, breakout, splat, asteroids, missile, goldrush];
+export const GAMES = [snake, breakout, splat, asteroids, missile, goldrush, colony];
 export const GAMES_BY_ID = Object.fromEntries(GAMES.map((g) => [g.id, g]));

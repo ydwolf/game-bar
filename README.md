@@ -1,6 +1,6 @@
 # The Game Bar
 
-A western-saloon "cocktail cabinet": one static web page with six two-sided arcade games. Every side of every game can be played by a human or by the computer, so you can play a friend on the same device, play either role against the computer, or watch the computer play itself.
+A western-saloon "cocktail cabinet": one static web page with seven two-sided arcade games. Every side of every game can be played by a human or by the computer, so you can play a friend on the same device, play either role against the computer, or watch the computer play itself.
 
 | Game | Side A | Side B |
 |---|---|---|
@@ -10,8 +10,11 @@ A western-saloon "cocktail cabinet": one static web page with six two-sided arca
 | Asteroids | 🚀 Ship — survive 45 s | ☄️ Rock thrower — aim rocks at the ship |
 | Missile Command | 💣 Defender — save the towns | 🔥 Raider — flatten 4 of 6 towns |
 | Gold Rush (Pac-Man) | 🤠 Prospector — collect the gold | 🦹 Bandit — catch the prospector |
+| Life in the Colony | 🧑‍🌾 Founder — reach the soft win: every profession working on its own | 🦹 Raider — spend notoriety (earned from the colony's prosperity) on raids until time runs out |
 
 Matches are first to 3 rounds. Each round is a level: the game's numbers change and the computer player gets sharper, so it starts easy and gets harder whichever side you play.
+
+**Life in the Colony** is a pocket version of my own colony-sim design (Notion GDD + brainstorm log): gather by minigame, build, hire visitors at the Tavern (villages filter jobs), forge tools that wear out, cook, house and heal — until the village runs without you. Each level switches on more of the design: tools → hunger and cooking → housing → sickness → all eight professions.
 
 ## Controls
 
