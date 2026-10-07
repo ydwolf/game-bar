@@ -433,7 +433,7 @@ export function createCabinet({ onSwap }) {
         ctx.scale(r.view.zoom, r.view.zoom);
         ctx.translate(-r.view.x, -r.view.y);
       }
-      r.cursors.forEach((c, i) => c && drawCursor(c, i));
+      r.cursors.forEach((c, i) => c && !c.hidden && drawCursor(c, i));
       ctx.restore();
     }
 

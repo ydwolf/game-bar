@@ -226,3 +226,20 @@ A record of what I asked Claude (Claude Code, desktop app) to do, what it produc
 - **Balance:** rebalanced with per-level sweeps of the clock and the Raider's rate, ending at 43–58% for the Founder at every level. A Snake run confirmed the engine change doesn't affect other games.
 - **In the browser:** checked by screenshot. The first version of the goal card spilled past its box, so it was shortened and the text now shrinks to fit.
 - *Not yet:* the user's playtest of these changes.
+
+## 12. Colony: a peaceful first minute
+
+**Asked:** "Still too much to focus on at once. Make it so that the first minute is stress free, then the raiders can come."
+
+**Produced:**
+- **A peaceful first minute when a person plays the Founder:** for 60 real seconds:
+  - there are no raids and the Raider earns no notoriety
+  - the Raider's crosshair is hidden
+  - the round clock doesn't start until the peace is over
+- **The peace is visible:** the top-right bar reads "PEACEFUL 42s" and drains in green; it then switches to the Raider's notoriety bar, with a "The peace is over — raiders are coming!" message. The goal card and the how-to list say the first minute is peaceful.
+- **The computer Founder keeps the old 25-second grace.** In a sweep, the computer Founder finished level 1 *inside* the peaceful minute almost every time (88–99% wins whatever the clock length), so peace for everyone would have made computer-vs-computer games one-sided. The peace is a learning aid for a person.
+
+**Verified:**
+- **Balance:** the fairness run is unchanged for computer vs computer (Founder 46–52% at every level).
+- **Timing:** a scripted human-Founder round with a sharp Raider showed the clock and notoriety frozen for 60 real seconds, the crosshair hidden, and the first raid at about 70 seconds.
+- *Not yet:* the user's playtest.

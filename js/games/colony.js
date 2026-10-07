@@ -74,7 +74,8 @@ const LEVELS = [
 const ROUND_TIME = [100, 150, 170, 200, 240]; // game seconds (the colony runs at 0.75x, so ~1.3x in real time)
 const NOTORIETY_RATE = [1.0, 0.47, 0.21, 0.18, 0.23];
 const RAIDS = { small: { bandits: 2, cost: 5 }, big: { bandits: 5, cost: 12 } };
-const RAID_GRACE = 25; // seconds of peace before the first raid
+const RAID_GRACE = 25; // seconds before the first raid when the computer plays the Founder
+const PEACE = 45; // a person playing the Founder gets this long (one real minute at 0.75x) with no raids and no clock
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const tilePos = ([tx, ty]) => ({ x: tx * T, y: ty * T });
@@ -120,7 +121,8 @@ function createRound({ level, inputs, humans = [false, false] }) {
     shieldCd: 0,
     notoriety: 1,
     notoRate: NOTORIETY_RATE[level - 1],
-    raidCd: RAID_GRACE,
+    raidCd: humans[0] ? 0 : RAID_GRACE,
+    peace: humans[0] ? PEACE : 0,
     softWin: 0,
     msg: null,
     clock: 0,
@@ -596,7 +598,7 @@ function createRound({ level, inputs, humans = [false, false] }) {
 
   function raid(size) {
     const spec = RAIDS[size];
-    if (r.raidCd > 0 || r.notoriety < spec.cost) return;
+    if (r.peace > 0 || r.raidCd > 0 || r.notoriety < spec.cost) return;
     const target = r.raidTargetAt(r.cursors[1]);
     if (!target) return;
     r.notoriety -= spec.cost;
@@ -771,8 +773,9 @@ function createRound({ level, inputs, humans = [false, false] }) {
       `all at once for 5 seconds, within ${formatTime(r.time)}.`,
       extra.length ? `New this level: ${extra.join(", ")}.` : "Build, hire at the Tavern, give them tools.",
       "Raider wins if the clock runs out first.",
+      r.peace > 0 ? "The first minute is peaceful: no raids, and the clock waits." : null,
       "Tip: follow the NEXT bar and the 👇 arrow.",
-    ];
+    ].filter(Boolean);
   };
 
   // ---------- the frame ----------
@@ -838,8 +841,15 @@ function createRound({ level, inputs, humans = [false, false] }) {
       r.shieldCd = 1;
     }
 
-    // The Raider: notoriety comes from the colony's own success
-    r.notoriety = Math.min(20, r.notoriety + (r.notoRate + 0.012 * r.reputation()) * dt);
+    // The first minute is peaceful: no notoriety, no raids, and the round clock waits
+    if (r.peace > 0) {
+      r.peace = Math.max(0, r.peace - dt);
+      if (r.peace === 0) r.msg = { text: "The peace is over — raiders are coming!", t: 4 };
+    } else {
+      // The Raider: notoriety comes from the colony's own success
+      r.notoriety = Math.min(20, r.notoriety + (r.notoRate + 0.012 * r.reputation()) * dt);
+    }
+    r.cursors[1].hidden = r.peace > 0;
     r.raidCd = Math.max(0, r.raidCd - dt);
     if (rin.pressed.action) raid("small");
     if (rin.pressed.action2) raid("big");
@@ -858,13 +868,13 @@ function createRound({ level, inputs, humans = [false, false] }) {
       r.softWin = 0;
     }
 
-    r.time -= dt;
+    if (r.peace === 0) r.time -= dt;
     if (r.winner === null && r.time <= 0) end(1, "The raids kept the colony from standing on its own.");
     return r.winner;
   };
 
   r.status = () =>
-    `${formatTime(r.time)} · Soft win ${r.rolesFilled()}/${neededJobs().length} · Villagers ${r.villagers.length} · Notoriety ${Math.floor(r.notoriety)}`;
+    `${r.peace > 0 ? `Peaceful ${formatTime(r.peace / 0.75)}` : formatTime(r.time)} · Soft win ${r.rolesFilled()}/${neededJobs().length} · Villagers ${r.villagers.length} · Notoriety ${Math.floor(r.notoriety)}`;
   r.draw = (ctx) => draw(ctx, r);
   return r;
 }
@@ -1014,7 +1024,7 @@ function raiderBot(r, input, skill) {
         }
         return;
       }
-      if (!clock.tick(dt) || input.pendingFire || r.raidCd > 0) return;
+      if (!clock.tick(dt) || input.pendingFire || r.peace > 0 || r.raidCd > 0) return;
       const big = r.notoriety >= RAIDS.big.cost && chance(0.3 + 0.5 * skill);
       if (!big && r.notoriety < RAIDS.small.cost + 3 * skill) return; // a sharper raider saves up a little
       const soldiers = r.villagers.filter((v) => v.job === "soldier" && !v.wounded);
@@ -1387,13 +1397,16 @@ function drawHud(ctx, r) {
     }
   });
   const nx = W - 128;
-  text(ctx, r.raidCd > 0 ? `RAIDS IN ${Math.ceil(r.raidCd)}s` : "NOTORIETY", nx - 4, 12, 10, "#f08a6e", "right");
-  ctx.fillStyle = "#3a2418";
-  ctx.fillRect(nx, 6, 120, 12);
-  ctx.fillStyle = "#d0692f";
-  ctx.fillRect(nx, 6, (120 * r.notoriety) / 20, 12);
-  ctx.fillStyle = "#f3e6c9";
-  for (const spec of Object.values(RAIDS)) ctx.fillRect(nx + (120 * spec.cost) / 20, 4, 2, 16);
+  if (r.peace > 0) {
+    // The peaceful first minute, counted in real seconds since the colony runs slowed down
+    text(ctx, `PEACEFUL ${Math.ceil(r.peace / 0.75)}s`, nx - 4, 12, 10, "#c9e08a", "right");
+    ctx.fillStyle = "#3a2418";
+    ctx.fillRect(nx, 6, 120, 12);
+    ctx.fillStyle = "#5f8a3c";
+    ctx.fillRect(nx, 6, (120 * r.peace) / PEACE, 12);
+  } else {
+    drawNotoriety(ctx, r, nx);
+  }
 
   // Bottom strip: what the Founder needs to win, by name
   ctx.fillStyle = "rgba(28, 17, 10, 0.85)";
@@ -1412,6 +1425,16 @@ function drawHud(ctx, r) {
   });
 }
 
+function drawNotoriety(ctx, r, nx) {
+  text(ctx, r.raidCd > 0 ? `RAIDS IN ${Math.ceil(r.raidCd)}s` : "NOTORIETY", nx - 4, 12, 10, "#f08a6e", "right");
+  ctx.fillStyle = "#3a2418";
+  ctx.fillRect(nx, 6, 120, 12);
+  ctx.fillStyle = "#d0692f";
+  ctx.fillRect(nx, 6, (120 * r.notoriety) / 20, 12);
+  ctx.fillStyle = "#f3e6c9";
+  for (const spec of Object.values(RAIDS)) ctx.fillRect(nx + (120 * spec.cost) / 20, 4, 2, 16);
+}
+
 export default {
   id: "colony",
   title: "Life in the Colony",
@@ -1419,12 +1442,13 @@ export default {
   accent: "var(--brass)",
   blurb: "Build a village that runs without you — while raiders take notice.",
   howTo: [
+    "When a person plays the Founder, the first minute is peaceful: no raids, and the round clock waits until it's over. Use it to learn.",
     "Founder: walk with the arrow keys and press Space at whatever you're standing next to — the yellow prompt above you says what Space will do.",
     "Gathering is a minigame: press Space again when the marker is in the green. Each success gives 2.",
     "To build: walk to a lot (the labelled squares), press Space to clear the vines, then press Space again to build. It pays from your bag, then from the Hall's stockpile. A lot glows yellow when you can afford it.",
     "Follow the 👇 arrow — it points at whatever the NEXT bar at the top is asking for. Hire visitors at the Tavern; each job needs someone from the right village.",
     "You win when every profession on the checklist at the bottom is green for 5 seconds. The bar at the top always says what to do next.",
-    "Raider: click a building to send bandits (right-click for a big raid). Raids start after 25 seconds and get cheaper the bigger the colony grows.",
+    "Raider: click a building to send bandits (right-click for a big raid). Raids start after the peaceful minute (25 seconds if the computer is the Founder) and get cheaper the bigger the colony grows.",
   ],
   width: W,
   height: H,

@@ -14,7 +14,7 @@ A western-saloon "cocktail cabinet": one static web page with seven two-sided ar
 
 Matches are first to 3 rounds. Each round is a level: the game's numbers change and the computer player gets sharper, so it starts easy and gets harder whichever side you play.
 
-**Life in the Colony** is a pocket version of my own colony-sim design (Notion GDD + brainstorm log): gather by minigame, build, hire visitors at the Tavern (villages filter jobs), forge tools that wear out, cook, house and heal — until the village runs without you. Each level switches on more of the design: tools → hunger and cooking → housing → sickness → all eight professions.
+**Life in the Colony** is a pocket version of my own colony-sim design (Notion GDD + brainstorm log): gather by minigame, build, hire visitors at the Tavern (villages filter jobs), forge tools that wear out, cook, house and heal — until the village runs without you. A person playing the Founder gets a peaceful first minute: no raids, and the clock waits. Each level switches on more of the design: tools → hunger and cooking → housing → sickness → all eight professions.
 
 ## Controls
 
