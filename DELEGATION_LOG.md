@@ -227,7 +227,7 @@ A record of what I asked Claude (Claude Code, desktop app) to do, what it produc
 - **In the browser:** checked by screenshot. The first version of the goal card spilled past its box, so it was shortened and the text now shrinks to fit.
 - *Not yet:* the user's playtest of these changes.
 
-## 12. Colony: a peaceful first minute
+## 12. Third playtest: "the first minute should be stress free" — 2026-10-07
 
 **Asked:** "Still too much to focus on at once. Make it so that the first minute is stress free, then the raiders can come."
 
