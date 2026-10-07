@@ -64,15 +64,15 @@ const HOME_SPOTS = [[8.6, 9.3], [9.6, 9.3], [10.6, 9.3], [8.6, 10.4], [9.6, 10.4
 
 // Each level turns on more of the design and asks for more of the soft win
 const LEVELS = [
-  { roles: ["lumberjack", "courier", "miner", "blacksmith"], hunger: false, homes: false, sickness: false },
-  { roles: ["lumberjack", "courier", "miner", "blacksmith", "farmer", "cook"], hunger: true, homes: false, sickness: false },
-  { roles: ["lumberjack", "courier", "miner", "blacksmith", "farmer", "cook", "builder"], hunger: true, homes: true, sickness: false },
-  { roles: ["lumberjack", "courier", "miner", "blacksmith", "farmer", "cook", "builder", "healer"], hunger: true, homes: true, sickness: true },
-  { roles: ["lumberjack", "courier", "miner", "blacksmith", "farmer", "cook", "builder", "healer"], hunger: true, homes: true, sickness: true },
+  { roles: ["lumberjack", "miner"], hunger: false, homes: false, sickness: false },
+  { roles: ["lumberjack", "miner", "courier", "blacksmith"], hunger: false, homes: false, sickness: false },
+  { roles: ["lumberjack", "miner", "courier", "blacksmith", "farmer", "cook"], hunger: true, homes: false, sickness: false },
+  { roles: ["lumberjack", "miner", "courier", "blacksmith", "farmer", "cook", "builder"], hunger: true, homes: true, sickness: false },
+  { roles: ["lumberjack", "miner", "courier", "blacksmith", "farmer", "cook", "builder", "healer"], hunger: true, homes: true, sickness: true },
 ];
 // Round length and how quickly the Raider earns notoriety (tuned with tests/fairness.js)
-const ROUND_TIME = [110, 170, 180, 210, 210];
-const NOTORIETY_RATE = [0.5, 0.37, 0.27, 0.29, 0.32];
+const ROUND_TIME = [100, 150, 170, 200, 240]; // game seconds (the colony runs at 0.75x, so ~1.3x in real time)
+const NOTORIETY_RATE = [1.0, 0.47, 0.21, 0.18, 0.23];
 const RAIDS = { small: { bandits: 2, cost: 5 }, big: { bandits: 5, cost: 12 } };
 const RAID_GRACE = 25; // seconds of peace before the first raid
 
@@ -130,6 +130,9 @@ function createRound({ level, inputs, humans = [false, false] }) {
     // Zoom in on the Founder when a person plays them against the computer; a human Raider
     // needs to see the whole map to aim, so they get the full view.
     follow: humans[0] && !humans[1],
+    founderHuman: humans[0],
+    timeScale: 0.75, // the whole colony runs at three-quarter speed
+    countdown: 6,
     view: null,
   };
   for (let i = 0; i < 8; i++) r.plots.push({ x: (15.6 + (i % 4) * 1.15) * T, y: (10.4 + Math.floor(i / 4) * 1.4) * T, growth: rand(0.3, 0.9), claimed: null });
@@ -161,6 +164,7 @@ function createRound({ level, inputs, humans = [false, false] }) {
     return true;
   }
   r.isWorking = isWorking;
+  const haveText = (cost) => Object.keys(cost).map((k) => `${r.stock[k] + bagCount(k)} ${ITEM_ICON[k]}`).join(" + ");
   r.working = (job) => r.villagers.some((v) => v.job === job && isWorking(v));
   r.rolesFilled = () => neededJobs().filter((j) => r.working(j)).length;
 
@@ -215,6 +219,24 @@ function createRound({ level, inputs, humans = [false, false] }) {
   const pay = (cost) => Object.entries(cost).forEach(([k, n]) => (r.stock[k] -= n));
   r.canAfford = canAfford;
 
+  // The Founder pays from their bag first and the Hall for the rest — no trip to the Hall needed
+  const canPay = (cost) => Object.entries(cost).every(([k, n]) => r.stock[k] + bagCount(k) >= n);
+  r.canPay = canPay;
+  function payBoth(cost) {
+    for (const [k, n] of Object.entries(cost)) {
+      let left = n;
+      for (let i = 0; i < 4 && left; i++) {
+        const sl = r.player.slots[i];
+        if (!sl || sl.item !== k) continue;
+        const take = Math.min(left, sl.n);
+        sl.n -= take;
+        left -= take;
+        if (!sl.n) r.player.slots[i] = null;
+      }
+      r.stock[k] -= left;
+    }
+  }
+
   // ---------- what the Founder is standing at ----------
 
   function interactables() {
@@ -260,17 +282,20 @@ function createRound({ level, inputs, humans = [false, false] }) {
       return say(n ? `Stored ${n} at the Hall` : "The Hall: your stockpile");
     }
     if (kind === "lot") {
-      if (obj.vines > 0) return startMinigame("clear", obj);
+      if (obj.vines > 0) {
+        obj.vines = 0;
+        return say(`Cleared the ${BUILDINGS[obj.key].name} lot — now build it here`);
+      }
       const cost = BUILDINGS[obj.key].cost;
-      if (!canAfford(cost)) return say(`${BUILDINGS[obj.key].name} needs ${costText(cost)} at the Hall`);
-      pay(cost);
+      if (!canPay(cost)) return say(`The ${BUILDINGS[obj.key].name} needs ${costText(cost)} — you have ${haveText(cost)}`);
+      payBoth(cost);
       obj.built = true;
       return say(`Built the ${BUILDINGS[obj.key].name}`);
     }
     // A built building: repair first, then whatever that building does
     if (obj.damaged) {
-      if (r.stock.log < 2) return say("Repairs need 2 🪵 at the Hall");
-      r.stock.log -= 2;
+      if (!canPay({ log: 2 })) return say("Repairs need 2 🪵");
+      payBoth({ log: 2 });
       obj.damaged = false;
       return say("Repaired");
     }
@@ -289,12 +314,12 @@ function createRound({ level, inputs, humans = [false, false] }) {
       }
       if (r.working("blacksmith")) return say("The blacksmith has the forge");
       if (!r.toolNeeded()) return say("Nobody needs a tool right now");
-      if (r.stock.ore < 1 || r.stock.log < 1) return say("A tool needs 1 🪨 + 1 🪵 at the Hall");
+      if (!canPay({ ore: 1, log: 1 })) return say("A tool needs 1 🪨 + 1 🪵");
       return startMinigame("forge", obj);
     }
     if (obj.key === "kitchen") {
       if (r.working("cook")) return say("The cook has the kitchen");
-      if (r.stock.crop < 2) return say("Two meals need 2 🌾 at the Hall");
+      if (!canPay({ crop: 2 })) return say("Two meals need 2 🌾");
       return startMinigame("cook", obj);
     }
     say(def.name);
@@ -307,8 +332,8 @@ function createRound({ level, inputs, humans = [false, false] }) {
     const want = JOBS[job].origin;
     const i = r.visitors.findIndex((v) => v.origin === want);
     if (i < 0) return say(`Need a ${ORIGINS[want].name} for the ${JOBS[job].name} job`);
-    if (r.stock.log < HIRE_FEE) return say(`Hiring costs ${HIRE_FEE} 🪵 at the Hall`);
-    r.stock.log -= HIRE_FEE;
+    if (!canPay({ log: HIRE_FEE })) return say(`Hiring costs ${HIRE_FEE} 🪵`);
+    payBoth({ log: HIRE_FEE });
     const visitor = r.visitors.splice(i, 1)[0];
     r.villagers.push({
       id: r.nextId++, origin: visitor.origin, job, x: tavern.x, y: tavern.y + 14,
@@ -336,14 +361,13 @@ function createRound({ level, inputs, humans = [false, false] }) {
       if (!target.vines) say(`Cleared the ${BUILDINGS[target.key].name} lot`);
     } else if (kind === "forge") {
       const tool = r.toolNeeded();
-      if (tool && r.stock.ore >= 1 && r.stock.log >= 1) {
-        r.stock.ore -= 1;
-        r.stock.log -= 1;
+      if (tool && canPay({ ore: 1, log: 1 })) {
+        payBoth({ ore: 1, log: 1 });
         r.stock[tool]++;
         say(`Forged a ${tool} ${TOOL_ICON[tool]}`);
       }
-    } else if (kind === "cook" && r.stock.crop >= 2) {
-      r.stock.crop -= 2;
+    } else if (kind === "cook" && canPay({ crop: 2 })) {
+      payBoth({ crop: 2 });
       target.meals += 2;
       say("Cooked a meal 🍲");
     }
@@ -641,9 +665,9 @@ function createRound({ level, inputs, humans = [false, false] }) {
     if (kind === "hall") return r.bagTotal() ? `Space: store your bag at the Hall (${r.bagTotal()})` : "The Hall — your stockpile";
     const name = BUILDINGS[obj.key].name;
     if (kind === "lot") {
-      if (obj.vines > 0) return `Space: clear the vines (${name} lot)`;
+      if (obj.vines > 0) return `Space: clear the vines off the ${name} lot`;
       const cost = BUILDINGS[obj.key].cost;
-      return canAfford(cost) ? `Space: build the ${name} (${costText(cost)})` : `${name} needs ${costText(cost)} in the Hall`;
+      return canPay(cost) ? `Space: build the ${name} (${costText(cost)})` : `${name} needs ${costText(cost)} — you have ${haveText(cost)}`;
     }
     if (obj.damaged) return `Space: repair the ${name} (2 🪵)`;
     if (obj.key === "tavern") {
@@ -665,59 +689,90 @@ function createRound({ level, inputs, humans = [false, false] }) {
     return name;
   };
 
+  const nearestNode = (item) => {
+    const pool = item === "log" ? r.trees.filter((t) => t.grown) : item === "ore" ? r.rocks.filter((k) => k.ore > 0) : r.plots.filter((q) => q.growth >= 1);
+    let best = null;
+    for (const n of pool) if (!best || dist(n, r.player) < dist(best, r.player)) best = n;
+    return best;
+  };
+
+  // Returns [what to do, where to do it]
   function buildHint(key) {
     const lot = r.buildings[key];
     const name = BUILDINGS[key].name;
-    if (lot.vines > 0) return `Clear the vines on the ${name} lot (walk there, press Space)`;
+    if (lot.vines > 0) return [`Walk to the ${name} lot (arrow) and press Space to clear the vines`, lot];
     const cost = BUILDINGS[key].cost;
-    const short = Object.keys(cost).filter((k) => r.stock[k] < cost[k]);
-    if (!short.length) return `Build the ${name}: stand on its lot and press Space`;
-    const k = short[0];
-    const have = r.bagCount(k);
-    if (r.stock[k] + have >= cost[k]) return `Store your bag at the Hall — the ${name} needs ${costText(cost)}`;
-    return `The ${name} needs ${costText(cost)}: ${WHERE[k]}, then store it at the Hall`;
+    if (canPay(cost)) return [`Build the ${name}: stand on its lot (arrow) and press Space`, lot];
+    const k = Object.keys(cost).find((item) => r.stock[item] + bagCount(item) < cost[item]);
+    return [`The ${name} needs ${costText(cost)} (you have ${haveText(cost)}) — ${WHERE[k]}`, nearestNode(k)];
   }
 
-  // The single most useful thing to do next, worked out from the colony's actual state
-  r.nextStep = () => {
+  function step() {
     const raid = r.bandits[0];
     if (raid) {
       const fight = r.villagers.some((v) => v.job === "soldier" && !v.wounded)
         ? "press Shift when one flashes red to block"
         : "build the Training Grounds and hire Warriors to fight back";
-      return `⚠ Bandits heading for the ${nameOf(raid.target)}! Soldiers fight them — ${fight}`;
+      return [`⚠ Bandits heading for the ${nameOf(raid.target)}! Soldiers fight them — ${fight}`, raid.target === "hall" ? HALL : r.buildings[raid.target]];
     }
     const broken = Object.values(r.buildings).find((b) => b.built && b.damaged);
-    if (broken && !r.working("builder")) return `The ${nameOf(broken.key)} was raided — stand at it and press Space to repair (2 🪵)`;
-    if (!r.buildings.tavern.built) return buildHint("tavern");
+    if (broken && !r.working("builder")) return [`The ${nameOf(broken.key)} was raided — stand at it and press Space to repair (2 🪵)`, broken];
+    if (!r.buildings.tavern.built) {
+      const [t, at] = buildHint("tavern");
+      return [`${t} — the Tavern is where you hire workers`, at];
+    }
     for (const job of neededJobs()) {
       const key = JOBS[job].building;
-      if (!r.buildings[key].built) return `${buildHint(key)} — it's where the ${JOBS[job].name} works`;
+      if (!r.buildings[key].built) {
+        const [t, at] = buildHint(key);
+        return [`${t} — it's where the ${JOBS[job].name} works`, at];
+      }
     }
     const open = neededJobs().find((j) => villagersIn(j).length === 0);
     if (open) {
       const origin = ORIGINS[JOBS[open].origin].name;
       return r.visitors.some((v) => v.origin === JOBS[open].origin)
-        ? `A ${origin} is at the Tavern — hire them as your ${JOBS[open].name} (${HIRE_FEE} 🪵)`
-        : `Wait for a ${origin} to visit the Tavern (only they can be a ${JOBS[open].name}) — gather meanwhile`;
+        ? [`A ${origin} is at the Tavern — stand there and press Space to hire them as your ${JOBS[open].name} (${HIRE_FEE} 🪵)`, r.buildings.tavern]
+        : [`Waiting for a ${origin} to visit the Tavern (only they can be a ${JOBS[open].name}) — chop wood meanwhile`, nearestNode("log")];
     }
     const toolless = r.villagers.find((v) => v.blocked && v.blocked.startsWith("no "));
     if (toolless) {
       const tool = toolless.blocked.slice(3);
-      const how = r.working("blacksmith") ? "the Blacksmith will make one if the Hall has 🪨 + 🪵"
-        : r.buildings.smithy.built ? "forge one at the Smithy (1 🪨 + 1 🪵)" : "build the Smithy first";
-      return `Your ${JOBS[toolless.job].name} needs a ${tool} — ${how}`;
+      if (r.working("blacksmith")) return [`Your ${JOBS[toolless.job].name} needs a ${tool} — the Blacksmith makes it from 🪨 + 🪵 in the Hall`, HALL];
+      if (r.buildings.smithy.built) return [`Your ${JOBS[toolless.job].name} needs a ${tool} — forge one at the Smithy (1 🪨 + 1 🪵, press Space there)`, r.buildings.smithy];
+      const [t, at] = buildHint("smithy");
+      return [`Your ${JOBS[toolless.job].name} needs a ${tool}, made at a Smithy. ${t}`, at];
     }
     if (cfg.hunger && !r.working("cook") && r.buildings.kitchen.meals === 0 && r.villagers.some((v) => v.hunger >= 60)) {
-      return "Villagers are hungry — cook at the Kitchen (2 🌾 makes 2 meals)";
+      return ["Villagers are hungry — cook at the Kitchen (2 🌾 makes 2 meals)", r.buildings.kitchen];
     }
     const idleJob = neededJobs().find((j) => !r.working(j));
     if (idleJob) {
       const v = villagersIn(idleJob)[0];
       const why = v && (v.wounded ? "is wounded" : v.sick ? "is sick" : cfg.hunger && v.hunger >= 100 ? "is starving — cook!" : "can't work");
-      return `Your ${JOBS[idleJob].name} ${why || "can't work yet"} — the checklist below shows who's working`;
+      return [`Your ${JOBS[idleJob].name} ${why || "can't work yet"} — the checklist below shows who's working`, null];
     }
-    return "Everyone's working! Keep it that way for 5 seconds to win";
+    return ["Everyone's working! Keep it that way for 5 seconds to win", null];
+  }
+
+  r.nextStep = () => {
+    const [text, at] = step();
+    r.hintTarget = at || null;
+    return text;
+  };
+
+  r.intro = () => {
+    const names = neededJobs().map((j) => JOBS[j].name);
+    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
+    const extra = [cfg.hunger && "villagers get hungry", cfg.homes && "they need homes", cfg.sickness && "they can fall sick"].filter(Boolean);
+    return [
+      "Founder wins by getting these jobs working:",
+      list,
+      `all at once for 5 seconds, within ${formatTime(r.time)}.`,
+      extra.length ? `New this level: ${extra.join(", ")}.` : "Build, hire at the Tavern, give them tools.",
+      "Raider wins if the clock runs out first.",
+      "Tip: follow the NEXT bar and the 👇 arrow.",
+    ];
   };
 
   // ---------- the frame ----------
@@ -753,8 +808,8 @@ function createRound({ level, inputs, humans = [false, false] }) {
     const my = (fin.held.down ? 1 : 0) - (fin.held.up ? 1 : 0);
     if (mx || my) {
       const len = Math.hypot(mx, my);
-      p.x = clamp(p.x + (mx / len) * 190 * dt, 10, W - 10);
-      p.y = clamp(p.y + (my / len) * 190 * dt, 30, H - 30);
+      p.x = clamp(p.x + (mx / len) * 150 * dt, 10, W - 10);
+      p.y = clamp(p.y + (my / len) * 150 * dt, 30, H - 30);
       if (mx) p.face = mx;
     }
     if (r.mg) {
@@ -835,6 +890,7 @@ function founderBot(r, input, skill) {
   const needed = (key) => {
     if (key === "tavern") return true;
     if (key === "barracks") return r.level >= 2;
+    if (key === "smithy") return r.cfg.roles.some((j) => JOBS[j].tool); // tools are forged there
     return r.cfg.roles.some((j) => JOBS[j].building === key);
   };
   const go = (obj) => ({ x: obj.x, y: obj.y });
@@ -1051,6 +1107,36 @@ function draw(ctx, r) {
   drawFounderText(ctx, r);
   drawHud(ctx, r);
   if (r.view) drawMinimap(ctx, r);
+  if (r.view && r.founderHuman && r.hintTarget) drawEdgeArrow(ctx, r);
+}
+
+function drawEdgeArrow(ctx, r) {
+  const z = r.view.zoom;
+  const sx = (r.hintTarget.x - r.view.x) * z;
+  const sy = (r.hintTarget.y - r.view.y) * z;
+  const top = 50;
+  const bottom = H - 34;
+  if (sx > 20 && sx < W - 20 && sy > top && sy < bottom) return; // on screen: the 👇 is enough
+  const cx = W / 2;
+  const cy = (top + bottom) / 2;
+  const a = Math.atan2(sy - cy, sx - cx);
+  const ex = clamp(cx + Math.cos(a) * 1000, 26, W - 26);
+  const ey = clamp(cy + Math.sin(a) * 1000, top + 16, bottom - 16);
+  ctx.save();
+  ctx.translate(ex, ey);
+  ctx.rotate(a);
+  ctx.fillStyle = "#f3c35a";
+  ctx.strokeStyle = "#2b1d12";
+  ctx.lineWidth = 2;
+  ctx.beginPath();
+  ctx.moveTo(16, 0);
+  ctx.lineTo(-10, -12);
+  ctx.lineTo(-4, 0);
+  ctx.lineTo(-10, 12);
+  ctx.closePath();
+  ctx.fill();
+  ctx.stroke();
+  ctx.restore();
 }
 
 function drawMinimap(ctx, r) {
@@ -1139,6 +1225,12 @@ function drawWorld(ctx, r) {
         label(ctx, def.name, b.x, b.y + 27);
       } else {
         label(ctx, def.name, b.x, b.y + 27);
+        if (r.founderHuman && r.canPay(def.cost)) {
+          // Ready to build: make it obvious
+          ctx.strokeStyle = `rgba(243, 195, 90, ${0.6 + 0.4 * Math.sin(r.clock * 5)})`;
+          ctx.lineWidth = 3;
+          ctx.strokeRect(b.x - 26, b.y - 22, 52, 44);
+        }
         emoji(ctx, def.emoji, b.x, b.y - 4, 16);
         ctx.globalAlpha = 1;
         text(ctx, costText(def.cost), b.x, b.y + 12, 9, "#2b1d12", "center");
@@ -1216,6 +1308,12 @@ function drawWorld(ctx, r) {
   }
   for (const s of r.sparks) emoji(ctx, s.text, s.x, s.y - (0.8 - s.t) * 20, 20);
 
+  // Where the NEXT bar is pointing
+  if (r.founderHuman && r.hintTarget) {
+    const bob = Math.sin(r.clock * 6) * 4;
+    emoji(ctx, "👇", r.hintTarget.x, r.hintTarget.y - 34 + bob, 22);
+  }
+
   // The Founder
   const p = r.player;
   ctx.fillStyle = "rgba(201, 164, 92, 0.5)";
@@ -1256,7 +1354,10 @@ function drawHud(ctx, r) {
   const hint = r.nextStep();
   ctx.fillStyle = hint.startsWith("⚠") ? "rgba(140, 40, 24, 0.88)" : "rgba(243, 230, 201, 0.9)";
   ctx.fillRect(0, 24, W, 22);
-  text(ctx, (hint.startsWith("⚠") ? "" : "NEXT: ") + hint, 8, 35, 13, hint.startsWith("⚠") ? "#f3e6c9" : "#2b1d12");
+  const line = (hint.startsWith("⚠") ? "" : "NEXT: ") + hint;
+  ctx.font = '13px "Special Elite", monospace';
+  const fit = Math.max(8, Math.min(13, Math.floor((13 * (W - 16)) / ctx.measureText(line).width)));
+  text(ctx, line, 8, 35, fit, hint.startsWith("⚠") ? "#f3e6c9" : "#2b1d12");
 
   // Top strip: the Hall's stockpile, tools, your bag, and the Raider's notoriety
   ctx.fillStyle = "rgba(28, 17, 10, 0.78)";
@@ -1294,24 +1395,21 @@ function drawHud(ctx, r) {
   ctx.fillStyle = "#f3e6c9";
   for (const spec of Object.values(RAIDS)) ctx.fillRect(nx + (120 * spec.cost) / 20, 4, 2, 16);
 
-  // Bottom strip: the soft-win checklist
-  ctx.fillStyle = "rgba(28, 17, 10, 0.78)";
+  // Bottom strip: what the Founder needs to win, by name
+  ctx.fillStyle = "rgba(28, 17, 10, 0.85)";
   ctx.fillRect(0, H - 26, W, 26);
-  text(ctx, "SOFT WIN", 8, H - 13, 10, "#d4bd8f");
-  r.cfg.roles.forEach((job, i) => {
+  const roles = r.cfg.roles;
+  const all = r.rolesFilled() === roles.length;
+  text(ctx, all ? `HOLD ${Math.max(0, SOFT_WIN_HOLD - r.softWin).toFixed(1)}s` : "TO WIN:", 8, H - 13, 11, all ? "#c9e08a" : "#f3c35a");
+  const bw = Math.min(84, (W - 90) / roles.length);
+  roles.forEach((job, i) => {
     const ok = r.working(job);
-    const cx = 92 + i * 40;
-    ctx.fillStyle = ok ? "#6f9a4a" : "rgba(184, 68, 46, 0.7)";
-    ctx.fillRect(cx - 16, H - 23, 32, 20);
-    emoji(ctx, JOBS[job].emoji, cx, H - 13, 13);
+    const cx = 74 + i * bw;
+    ctx.fillStyle = ok ? "#5f8a3c" : "rgba(184, 68, 46, 0.75)";
+    ctx.fillRect(cx, H - 23, bw - 4, 20);
+    emoji(ctx, JOBS[job].emoji, cx + 9, H - 13, 11);
+    text(ctx, (ok ? "✓ " : "✗ ") + JOBS[job].name, cx + 18, H - 13, bw > 76 ? 10 : 8, "#f3e6c9");
   });
-  const fx = 92 + r.cfg.roles.length * 40 + 6;
-  ctx.fillStyle = "#3a2418";
-  ctx.fillRect(fx, H - 19, 90, 12);
-  ctx.fillStyle = "#c9a45c";
-  ctx.fillRect(fx, H - 19, (90 * r.softWin) / SOFT_WIN_HOLD, 12);
-  const extras = [r.cfg.hunger && "🍲 hunger", r.cfg.homes && "🏠 housing", r.cfg.sickness && "🤢 sickness"].filter(Boolean).join("  ");
-  if (extras) text(ctx, extras, W - 8, H - 13, 10, "#d4bd8f", "right");
 }
 
 export default {
@@ -1323,8 +1421,8 @@ export default {
   howTo: [
     "Founder: walk with the arrow keys and press Space at whatever you're standing next to — the yellow prompt above you says what Space will do.",
     "Gathering is a minigame: press Space again when the marker is in the green. Each success gives 2.",
-    "Carry what you gather to the Hall (middle) and press Space to store it. Buildings and hiring are paid from the Hall.",
-    "Clear the vines on a lot, then build there. Hire visitors at the Tavern — each job needs someone from the right village.",
+    "To build: walk to a lot (the labelled squares), press Space to clear the vines, then press Space again to build. It pays from your bag, then from the Hall's stockpile. A lot glows yellow when you can afford it.",
+    "Follow the 👇 arrow — it points at whatever the NEXT bar at the top is asking for. Hire visitors at the Tavern; each job needs someone from the right village.",
     "You win when every profession on the checklist at the bottom is green for 5 seconds. The bar at the top always says what to do next.",
     "Raider: click a building to send bandits (right-click for a big raid). Raids start after 25 seconds and get cheaper the bigger the colony grows.",
   ],

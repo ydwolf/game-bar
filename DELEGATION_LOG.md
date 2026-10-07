@@ -202,3 +202,27 @@ A record of what I asked Claude (Claude Code, desktop app) to do, what it produc
   - The zoomed view, minimap, NEXT bar, raid countdown and the "Space: clear the vines" prompt were all checked by screenshot.
   - The first version of the prompt was drawn inside the zoomed camera and came out huge. It now draws at normal size over the Founder.
 - *Not yet:* the user's own playtest of these changes.
+
+---
+
+## 11. Second playtest: "still too fast," "I don't know how to win," "I don't understand how to build" — 2026-10-07
+
+**Asked:** "Still too fast and I don't know how to win," then (mid-change) "the zoom is good, I just don't understand how to build infrastructure."
+
+**Produced:**
+- **Slower:**
+  - The whole colony runs at 75% speed. The engine supports a per-game time scale, so the bots and the clock slow down too, and the balance is unchanged.
+  - The Founder walks slower.
+- **The goal, stated up front:** a 6-second goal card at the start of each round, for example "Founder wins by getting these jobs working: Lumberjack and Miner, all at once for 5 seconds, within 1:40." The bottom bar now reads "TO WIN:" with each job's name and ✓ or ✗, then "HOLD 4.2s" once they're all green.
+- **Building simplified:**
+  - Building, hiring, repairing, forging and cooking pay from the Founder's **bag first**, so there's no required trip to the Hall.
+  - Vines clear with one press of Space.
+  - A lot glows yellow when you can afford it.
+- **Where to go:** a bouncing 👇 arrow over whatever the NEXT bar is talking about, plus an arrow at the screen edge when it's off screen.
+- **Gentler ramp:** level 1 needs only 2 jobs (Lumberjack, Miner), then 4, 6, 7, and all 8 by level 5.
+
+**Verified:**
+- **Bug found and fixed:** the Founder bot never built a Smithy at the new level 1, because no required job lives there, so its workers never got tools. Found by a no-Raider timing run; the bot now builds a Smithy whenever any required job needs a tool.
+- **Balance:** rebalanced with per-level sweeps of the clock and the Raider's rate, ending at 43–58% for the Founder at every level. A Snake run confirmed the engine change doesn't affect other games.
+- **In the browser:** checked by screenshot. The first version of the goal card spilled past its box, so it was shortened and the text now shrinks to fit.
+- *Not yet:* the user's playtest of these changes.

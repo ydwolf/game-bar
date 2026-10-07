@@ -128,7 +128,7 @@ export function createCabinet({ onSwap }) {
     const skills = humans.map((h) => (h ? null : skillAt(round)));
     set = createRoundSet(game, round, skills);
     phase = "countdown";
-    phaseTime = 2.5;
+    phaseTime = set.round.countdown || 2.5; // a game can ask for longer, to read its goal
     hideOverlay();
     renderSeats();
   }
@@ -444,10 +444,33 @@ export function createCabinet({ onSwap }) {
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
       const size = Math.round(canvas.width / 16);
-      ctx.font = `${size}px "Rye", Georgia, serif`;
-      ctx.fillText(`Round ${round}`, canvas.width / 2, canvas.height / 2 - size);
-      ctx.font = `${size * 2}px "Rye", Georgia, serif`;
-      ctx.fillText(String(Math.ceil(phaseTime)), canvas.width / 2, canvas.height / 2 + size * 0.6);
+      if (r.intro) {
+        // A game can explain its goal while the countdown runs
+        const lines = r.intro();
+        const lh = Math.round(size * 0.62);
+        const boxH = lines.length * lh + size * 1.6;
+        const top = canvas.height / 2 - boxH / 2 - size * 0.6;
+        ctx.fillStyle = "rgba(243, 230, 201, 0.95)";
+        ctx.fillRect(canvas.width * 0.08, top, canvas.width * 0.84, boxH);
+        ctx.fillStyle = "#2b1d12";
+        ctx.font = `${size}px "Rye", Georgia, serif`;
+        ctx.fillText(`Round ${round}`, canvas.width / 2, top + size * 0.75);
+        // Shrink the text if the longest line would spill out of the card
+        let fs = Math.round(size * 0.45);
+        ctx.font = `${fs}px "Special Elite", monospace`;
+        const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
+        if (widest > canvas.width * 0.8) fs = Math.floor((fs * canvas.width * 0.8) / widest);
+        ctx.font = `${fs}px "Special Elite", monospace`;
+        lines.forEach((line, i) => ctx.fillText(line, canvas.width / 2, top + size * 1.55 + i * lh));
+        ctx.fillStyle = "#f3e6c9";
+        ctx.font = `${size * 1.4}px "Rye", Georgia, serif`;
+        ctx.fillText(String(Math.ceil(phaseTime)), canvas.width / 2, top + boxH + size * 0.9);
+      } else {
+        ctx.font = `${size}px "Rye", Georgia, serif`;
+        ctx.fillText(`Round ${round}`, canvas.width / 2, canvas.height / 2 - size);
+        ctx.font = `${size * 2}px "Rye", Georgia, serif`;
+        ctx.fillText(String(Math.ceil(phaseTime)), canvas.width / 2, canvas.height / 2 + size * 0.6);
+      }
       ctx.textBaseline = "alphabetic";
     }
 

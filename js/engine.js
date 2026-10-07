@@ -15,6 +15,7 @@ export function createRoundSet(game, level, skills) {
 // Advances one frame. Returns the winning side (0 or 1) or null while the round goes on.
 export function tick(set, dt) {
   const { round, inputs, bots } = set;
+  dt *= round.timeScale || 1; // a game can run slower than real time — bots and all
   for (const bot of bots) if (bot) bot.update(dt);
   if (round.cursors) {
     round.cursors.forEach((c, i) => {
