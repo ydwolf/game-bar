@@ -6,7 +6,8 @@ import { Input, stepCursor } from "./input.js";
 // skills: [skillA, skillB] — a number (0..1) for a computer-controlled side, null for a human
 export function createRoundSet(game, level, skills) {
   const inputs = [new Input(), new Input()];
-  const round = game.createRound({ level, inputs });
+  const humans = skills.map((s) => s == null);
+  const round = game.createRound({ level, inputs, humans });
   const bots = skills.map((s, i) => (s == null ? null : game.sides[i].bot(round, inputs[i], s)));
   return { round, inputs, bots };
 }

@@ -331,6 +331,23 @@ button {
   color: var(--parchment-3);
 }
 
+.howto {
+  max-width: 720px;
+  margin: 0 auto 16px;
+  padding: 12px 16px 12px 34px;
+  border-radius: 10px;
+  text-align: left;
+  font-size: 0.95rem;
+  line-height: 1.45;
+  color: var(--ink);
+  background: linear-gradient(180deg, #fbf3e0, #e9d7b0);
+  box-shadow: 0 3px 0 rgba(0, 0, 0, 0.35);
+}
+
+.howto li + li {
+  margin-top: 4px;
+}
+
 .seats {
   display: grid;
   grid-template-columns: 1fr auto 1fr;

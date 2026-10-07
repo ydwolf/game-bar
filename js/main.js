@@ -96,6 +96,7 @@ function renderSetup(game) {
       el("h1", {}, game.title),
       el("p", { class: "setup-sub" }, "Pick your seats, partner.")
     ),
+    game.howTo ? el("ol", { class: "howto" }, ...game.howTo.map((line) => el("li", {}, line))) : null,
     el("div", { class: "seats" }, seatCard(0), el("div", { class: "vs" }, "vs"), seatCard(1)),
     el("a", { class: "deal-btn", href: `#/${game.id}/play` }, "Deal 'em in"),
     el("p", { class: "setup-note" }, `First to ${ROUNDS_TO_WIN} rounds wins the match. ${note}`)

@@ -176,3 +176,29 @@ A record of what I asked Claude (Claude Code, desktop app) to do, what it produc
 - **Bug found and fixed:** the Founder started just outside the Hall's reach. Buildings now have a larger reach than trees.
 - *Not tested:* a real person playing a whole round, or phones for this game specifically.
 - *Rubric note:* with Imitation still to come, there would be 8 games. The rubric allows one "game of your choice," so Colony may need to replace Gold Rush.
+
+---
+
+## 10. Playtest feedback on Life in the Colony — 2026-10-07
+
+**Asked:** "Too fast and I don't really understand how to play and what's happening," then "I can't see anything, it's too far zoomed out."
+
+**Produced:**
+- **Slower:**
+  - The minigame marker moves about 35% slower, and the green zone is wider.
+  - Raids can't start in the first 25 seconds, with a "RAIDS IN 25s" countdown on screen.
+- **Explained in the game itself:**
+  - A **NEXT bar** at the top always says the single most useful thing to do, worked out from the colony's real state (what's built, who's hired, who's missing a tool, who's hungry).
+  - A **prompt above the Founder** says what Space will do right there.
+  - **Alerts** when bandits are heading for a building, and labels on every lot.
+  - A short **"How to play"** list on the setup screen.
+- **Zoomed in:** when a human plays the Founder against the computer, the camera zooms in about 1.8× and follows them, with a **minimap** in the corner. A human Raider still sees the full map, since they need to aim anywhere. To support this, rounds are now told which seats are human (`engine.js`), and the cabinet draws crosshairs through the game's camera.
+- **Local server:** it now sends no-cache headers, because the old one let the browser keep serving outdated files after every change.
+
+**Verified:**
+- **Balance:** the slowdown shifted the game toward the Founder (74–93%), so the Raider's notoriety rate was retuned per level. It's back to 45–62%.
+- **In the browser:**
+  - The how-to list renders on the setup screen.
+  - The zoomed view, minimap, NEXT bar, raid countdown and the "Space: clear the vines" prompt were all checked by screenshot.
+  - The first version of the prompt was drawn inside the zoomed camera and came out huge. It now draws at normal size over the Founder.
+- *Not yet:* the user's own playtest of these changes.

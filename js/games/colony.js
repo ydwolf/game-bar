@@ -72,8 +72,9 @@ const LEVELS = [
 ];
 // Round length and how quickly the Raider earns notoriety (tuned with tests/fairness.js)
 const ROUND_TIME = [110, 170, 180, 210, 210];
-const NOTORIETY_RATE = [0.42, 0.28, 0.17, 0.2, 0.21];
+const NOTORIETY_RATE = [0.5, 0.37, 0.27, 0.29, 0.32];
 const RAIDS = { small: { bandits: 2, cost: 5 }, big: { bandits: 5, cost: 12 } };
+const RAID_GRACE = 25; // seconds of peace before the first raid
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const tilePos = ([tx, ty]) => ({ x: tx * T, y: ty * T });
@@ -96,7 +97,7 @@ function pickOrigin() {
   return "mechanic";
 }
 
-function createRound({ level, inputs }) {
+function createRound({ level, inputs, humans = [false, false] }) {
   const cfg = LEVELS[level - 1];
   const r = {
     level,
@@ -119,13 +120,17 @@ function createRound({ level, inputs }) {
     shieldCd: 0,
     notoriety: 1,
     notoRate: NOTORIETY_RATE[level - 1],
-    raidCd: 2,
+    raidCd: RAID_GRACE,
     softWin: 0,
     msg: null,
     clock: 0,
     nextId: 1,
     winner: null,
     endReason: "",
+    // Zoom in on the Founder when a person plays them against the computer; a human Raider
+    // needs to see the whole map to aim, so they get the full view.
+    follow: humans[0] && !humans[1],
+    view: null,
   };
   for (let i = 0; i < 8; i++) r.plots.push({ x: (15.6 + (i % 4) * 1.15) * T, y: (10.4 + Math.floor(i / 4) * 1.4) * T, growth: rand(0.3, 0.9), claimed: null });
   for (const [key, b] of Object.entries(BUILDINGS)) {
@@ -231,8 +236,8 @@ function createRound({ level, inputs }) {
   };
 
   function startMinigame(kind, target) {
-    const speed = 1.3 + 0.12 * (level - 1);
-    r.mg = { kind, target, phase: 0, dir: 1, speed, cool: 0, zoneC: rand(0.25, 0.75), zoneW: 0.2 + 0.06 * (r.player.toolLevel - 1) };
+    const speed = 0.85 + 0.08 * (level - 1);
+    r.mg = { kind, target, phase: 0, dir: 1, speed, cool: 0, zoneC: rand(0.25, 0.75), zoneW: 0.24 + 0.06 * (r.player.toolLevel - 1) };
   }
 
   function act() {
@@ -621,6 +626,100 @@ function createRound({ level, inputs }) {
     r.bandits = r.bandits.filter((b) => b.hp > 0);
   }
 
+  // ---------- explaining what's going on, for a human Founder ----------
+
+  const nameOf = (key) => (key === "hall" ? "Hall" : BUILDINGS[key].name);
+  const WHERE = { log: "chop trees in the forest (left)", ore: "mine rocks (top right)", crop: "harvest crops in the fields (bottom right)" };
+
+  // What pressing Space will do where the Founder is standing
+  r.promptFor = (it) => {
+    if (!it) return null;
+    const { kind, obj } = it;
+    if (kind === "tree") return "Space: chop tree (+2 🪵)";
+    if (kind === "rock") return "Space: mine rock (+2 🪨)";
+    if (kind === "plot") return "Space: harvest (+2 🌾)";
+    if (kind === "hall") return r.bagTotal() ? `Space: store your bag at the Hall (${r.bagTotal()})` : "The Hall — your stockpile";
+    const name = BUILDINGS[obj.key].name;
+    if (kind === "lot") {
+      if (obj.vines > 0) return `Space: clear the vines (${name} lot)`;
+      const cost = BUILDINGS[obj.key].cost;
+      return canAfford(cost) ? `Space: build the ${name} (${costText(cost)})` : `${name} needs ${costText(cost)} in the Hall`;
+    }
+    if (obj.damaged) return `Space: repair the ${name} (2 🪵)`;
+    if (obj.key === "tavern") {
+      const job = r.openJob();
+      if (!job) return "Tavern: no open jobs yet — build a workplace";
+      const origin = JOBS[job].origin;
+      return r.visitors.some((v) => v.origin === origin)
+        ? `Space: hire a ${ORIGINS[origin].name} as ${JOBS[job].name} (${HIRE_FEE} 🪵)`
+        : `Tavern: waiting for a ${ORIGINS[origin].name} to visit`;
+    }
+    const store = BUILDINGS[obj.key].store;
+    if (store && obj.stock > 0) return `Space: pick up ${obj.stock} ${ITEM_ICON[store]}`;
+    if (obj.key === "smithy") {
+      if (r.working("blacksmith")) return r.player.toolLevel < 3 ? "Space: upgrade your tools (4 🪨)" : "The Blacksmith is at work";
+      const tool = r.toolNeeded();
+      return tool ? `Space: forge a ${tool} (1 🪨 + 1 🪵)` : "Smithy: nobody needs a tool";
+    }
+    if (obj.key === "kitchen") return r.working("cook") ? "The Cook is at work" : "Space: cook 2 meals (2 🌾)";
+    return name;
+  };
+
+  function buildHint(key) {
+    const lot = r.buildings[key];
+    const name = BUILDINGS[key].name;
+    if (lot.vines > 0) return `Clear the vines on the ${name} lot (walk there, press Space)`;
+    const cost = BUILDINGS[key].cost;
+    const short = Object.keys(cost).filter((k) => r.stock[k] < cost[k]);
+    if (!short.length) return `Build the ${name}: stand on its lot and press Space`;
+    const k = short[0];
+    const have = r.bagCount(k);
+    if (r.stock[k] + have >= cost[k]) return `Store your bag at the Hall — the ${name} needs ${costText(cost)}`;
+    return `The ${name} needs ${costText(cost)}: ${WHERE[k]}, then store it at the Hall`;
+  }
+
+  // The single most useful thing to do next, worked out from the colony's actual state
+  r.nextStep = () => {
+    const raid = r.bandits[0];
+    if (raid) {
+      const fight = r.villagers.some((v) => v.job === "soldier" && !v.wounded)
+        ? "press Shift when one flashes red to block"
+        : "build the Training Grounds and hire Warriors to fight back";
+      return `⚠ Bandits heading for the ${nameOf(raid.target)}! Soldiers fight them — ${fight}`;
+    }
+    const broken = Object.values(r.buildings).find((b) => b.built && b.damaged);
+    if (broken && !r.working("builder")) return `The ${nameOf(broken.key)} was raided — stand at it and press Space to repair (2 🪵)`;
+    if (!r.buildings.tavern.built) return buildHint("tavern");
+    for (const job of neededJobs()) {
+      const key = JOBS[job].building;
+      if (!r.buildings[key].built) return `${buildHint(key)} — it's where the ${JOBS[job].name} works`;
+    }
+    const open = neededJobs().find((j) => villagersIn(j).length === 0);
+    if (open) {
+      const origin = ORIGINS[JOBS[open].origin].name;
+      return r.visitors.some((v) => v.origin === JOBS[open].origin)
+        ? `A ${origin} is at the Tavern — hire them as your ${JOBS[open].name} (${HIRE_FEE} 🪵)`
+        : `Wait for a ${origin} to visit the Tavern (only they can be a ${JOBS[open].name}) — gather meanwhile`;
+    }
+    const toolless = r.villagers.find((v) => v.blocked && v.blocked.startsWith("no "));
+    if (toolless) {
+      const tool = toolless.blocked.slice(3);
+      const how = r.working("blacksmith") ? "the Blacksmith will make one if the Hall has 🪨 + 🪵"
+        : r.buildings.smithy.built ? "forge one at the Smithy (1 🪨 + 1 🪵)" : "build the Smithy first";
+      return `Your ${JOBS[toolless.job].name} needs a ${tool} — ${how}`;
+    }
+    if (cfg.hunger && !r.working("cook") && r.buildings.kitchen.meals === 0 && r.villagers.some((v) => v.hunger >= 60)) {
+      return "Villagers are hungry — cook at the Kitchen (2 🌾 makes 2 meals)";
+    }
+    const idleJob = neededJobs().find((j) => !r.working(j));
+    if (idleJob) {
+      const v = villagersIn(idleJob)[0];
+      const why = v && (v.wounded ? "is wounded" : v.sick ? "is sick" : cfg.hunger && v.hunger >= 100 ? "is starving — cook!" : "can't work");
+      return `Your ${JOBS[idleJob].name} ${why || "can't work yet"} — the checklist below shows who's working`;
+    }
+    return "Everyone's working! Keep it that way for 5 seconds to win";
+  };
+
   // ---------- the frame ----------
 
   r.update = (dt) => {
@@ -907,7 +1006,96 @@ function text(ctx, str, x, y, size, color, align = "left") {
   ctx.fillText(str, x, y);
 }
 
+function label(ctx, str, x, y) {
+  ctx.font = '9px "Special Elite", monospace';
+  const w = ctx.measureText(str).width + 6;
+  ctx.fillStyle = "rgba(243, 230, 201, 0.75)";
+  ctx.fillRect(x - w / 2, y - 6, w, 12);
+  text(ctx, str, x, y, 9, "#2b1d12", "center");
+}
+
+function pill(ctx, str, x, y, color) {
+  ctx.font = '13px "Special Elite", monospace';
+  const w = ctx.measureText(str).width + 16;
+  const cx = clamp(x, w / 2 + 4, W - w / 2 - 4);
+  const cy = clamp(y, 60, H - 40);
+  ctx.fillStyle = "rgba(28, 17, 10, 0.88)";
+  ctx.fillRect(cx - w / 2, cy - 11, w, 22);
+  text(ctx, str, cx, cy, 13, color, "center");
+}
+
+const ZOOM = 1.8;
+
 function draw(ctx, r) {
+  if (r.follow) {
+    // Centre on the Founder, clamped so the camera never shows past the map's edge
+    const vw = W / ZOOM;
+    const vh = (H - 70) / ZOOM; // leave room for the bars at top and bottom
+    r.view = {
+      zoom: ZOOM,
+      x: clamp(r.player.x - vw / 2, 0, W - W / ZOOM),
+      y: clamp(r.player.y - vh / 2 - 44 / ZOOM, -44 / ZOOM, H - H / ZOOM + 26 / ZOOM),
+    };
+  } else {
+    r.view = null;
+  }
+  ctx.fillStyle = "#56743a";
+  ctx.fillRect(0, 0, W, H);
+  ctx.save();
+  if (r.view) {
+    ctx.scale(r.view.zoom, r.view.zoom);
+    ctx.translate(-r.view.x, -r.view.y);
+  }
+  drawWorld(ctx, r);
+  ctx.restore();
+  drawFounderText(ctx, r);
+  drawHud(ctx, r);
+  if (r.view) drawMinimap(ctx, r);
+}
+
+function drawMinimap(ctx, r) {
+  const s = 0.2;
+  const mw = W * s;
+  const mh = H * s;
+  const x0 = W - mw - 8;
+  const y0 = H - 26 - mh - 8;
+  ctx.save();
+  ctx.fillStyle = "rgba(28, 17, 10, 0.85)";
+  ctx.fillRect(x0 - 3, y0 - 3, mw + 6, mh + 6);
+  ctx.translate(x0, y0);
+  ctx.scale(s, s);
+  ctx.fillStyle = "#7f9a52";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#56743a";
+  ctx.fillRect(0, 0, 4.2 * T, H);
+  ctx.fillStyle = "#8a8070";
+  ctx.fillRect(15 * T, 0, 5 * T, 4.6 * T);
+  ctx.fillStyle = "#9c7a4c";
+  ctx.fillRect(15 * T, 9.4 * T, 5 * T, 4.6 * T);
+  ctx.fillStyle = "#c2a36b";
+  ctx.fillRect(14.6 * T, 5.6 * T, 5.4 * T, 2.8 * T);
+  ctx.fillStyle = "#3d2616";
+  ctx.fillRect(HALL.x - 25, HALL.y - 25, 50, 50);
+  for (const b of Object.values(r.buildings)) {
+    ctx.fillStyle = !b.built ? "rgba(60, 90, 40, 0.8)" : b.damaged ? "#e0603a" : "#c79a62";
+    ctx.fillRect(b.x - 20, b.y - 18, 40, 36);
+  }
+  ctx.fillStyle = "#f3e6c9";
+  for (const v of r.villagers) ctx.fillRect(v.x - 8, v.y - 8, 16, 16);
+  ctx.fillStyle = "#ff3a2a";
+  for (const b of r.bandits) ctx.fillRect(b.x - 12, b.y - 12, 24, 24);
+  ctx.fillStyle = "#f3c35a";
+  ctx.beginPath();
+  ctx.arc(r.player.x, r.player.y, 22, 0, Math.PI * 2);
+  ctx.fill();
+  // Where the camera is looking
+  ctx.strokeStyle = "#f3e6c9";
+  ctx.lineWidth = 8;
+  ctx.strokeRect(r.view.x, r.view.y, W / r.view.zoom, H / r.view.zoom);
+  ctx.restore();
+}
+
+function drawWorld(ctx, r) {
   // Zones: forest, mine, fields, the road the raiders use, and the village between
   ctx.fillStyle = "#7f9a52";
   ctx.fillRect(0, 0, W, H);
@@ -919,8 +1107,8 @@ function draw(ctx, r) {
   ctx.fillRect(15 * T, 9.4 * T, 5 * T, 4.6 * T);
   ctx.fillStyle = "#c2a36b";
   ctx.fillRect(14.6 * T, 5.6 * T, 5.4 * T, 2.8 * T);
-  text(ctx, "FOREST", 0.3 * T, 0.95 * T, 11, "rgba(255,255,255,0.6)");
-  text(ctx, "MINE", 15.3 * T, 0.95 * T, 11, "rgba(255,255,255,0.6)");
+  text(ctx, "FOREST", 0.3 * T, 1.55 * T, 11, "rgba(255,255,255,0.6)");
+  text(ctx, "MINE", 15.3 * T, 1.55 * T, 11, "rgba(255,255,255,0.6)");
   text(ctx, "FIELDS", 15.3 * T, 9.85 * T, 11, "rgba(255,255,255,0.6)");
   text(ctx, "ROAD ▸", 18.2 * T, 5.95 * T, 11, "rgba(60,30,10,0.6)");
 
@@ -948,7 +1136,9 @@ function draw(ctx, r) {
         ctx.globalAlpha = 1;
         emoji(ctx, "🌿", b.x - 8, b.y - 2, 20);
         emoji(ctx, "🌿", b.x + 9, b.y + 3, 18);
+        label(ctx, def.name, b.x, b.y + 27);
       } else {
+        label(ctx, def.name, b.x, b.y + 27);
         emoji(ctx, def.emoji, b.x, b.y - 4, 16);
         ctx.globalAlpha = 1;
         text(ctx, costText(def.cost), b.x, b.y + 12, 9, "#2b1d12", "center");
@@ -969,6 +1159,7 @@ function draw(ctx, r) {
       ctx.fill();
     });
     if (b.damaged) emoji(ctx, "🔥", b.x + 12, b.y - 14, 18);
+    if (b.key !== "tavern") label(ctx, def.name, b.x, b.y + 27);
   }
 
   for (const t of r.trees) {
@@ -1047,13 +1238,25 @@ function draw(ctx, r) {
     ctx.fillStyle = "#1f130b";
     ctx.fillRect(bx + mg.phase * 100 - 2, by - 3, 4, 16);
   }
-  if (r.msg) {
-    const w = Math.min(W - 20, r.msg.text.length * 7 + 16);
-    const mx = clamp(p.x, w / 2 + 4, W - w / 2 - 4);
-    ctx.fillStyle = "rgba(243, 230, 201, 0.92)";
-    ctx.fillRect(mx - w / 2, p.y + 22, w, 18);
-    text(ctx, r.msg.text, mx, p.y + 31, 11, "#2b1d12", "center");
-  }
+}
+
+// The prompt and messages around the Founder stay at normal size even when the camera zooms
+function drawFounderText(ctx, r) {
+  const p = r.player;
+  const z = r.view ? r.view.zoom : 1;
+  const sx = r.view ? (p.x - r.view.x) * z : p.x;
+  const sy = r.view ? (p.y - r.view.y) * z : p.y;
+  const prompt = r.mg ? "Press Space when the marker is in the green" : r.promptFor(r.targetAt(p));
+  if (prompt) pill(ctx, prompt, sx, sy - (r.mg ? 58 : 32) * z, "#f3c35a");
+  if (r.msg) pill(ctx, r.msg.text, sx, sy + 26 * z, "#f3e6c9");
+}
+
+function drawHud(ctx, r) {
+  // "Next step" bar: what to do now, worked out from the colony's actual state
+  const hint = r.nextStep();
+  ctx.fillStyle = hint.startsWith("⚠") ? "rgba(140, 40, 24, 0.88)" : "rgba(243, 230, 201, 0.9)";
+  ctx.fillRect(0, 24, W, 22);
+  text(ctx, (hint.startsWith("⚠") ? "" : "NEXT: ") + hint, 8, 35, 13, hint.startsWith("⚠") ? "#f3e6c9" : "#2b1d12");
 
   // Top strip: the Hall's stockpile, tools, your bag, and the Raider's notoriety
   ctx.fillStyle = "rgba(28, 17, 10, 0.78)";
@@ -1083,7 +1286,7 @@ function draw(ctx, r) {
     }
   });
   const nx = W - 128;
-  text(ctx, "NOTORIETY", nx - 4, 12, 10, "#f08a6e", "right");
+  text(ctx, r.raidCd > 0 ? `RAIDS IN ${Math.ceil(r.raidCd)}s` : "NOTORIETY", nx - 4, 12, 10, "#f08a6e", "right");
   ctx.fillStyle = "#3a2418";
   ctx.fillRect(nx, 6, 120, 12);
   ctx.fillStyle = "#d0692f";
@@ -1117,6 +1320,14 @@ export default {
   kicker: "Gather + build",
   accent: "var(--brass)",
   blurb: "Build a village that runs without you — while raiders take notice.",
+  howTo: [
+    "Founder: walk with the arrow keys and press Space at whatever you're standing next to — the yellow prompt above you says what Space will do.",
+    "Gathering is a minigame: press Space again when the marker is in the green. Each success gives 2.",
+    "Carry what you gather to the Hall (middle) and press Space to store it. Buildings and hiring are paid from the Hall.",
+    "Clear the vines on a lot, then build there. Hire visitors at the Tavern — each job needs someone from the right village.",
+    "You win when every profession on the checklist at the bottom is green for 5 seconds. The bar at the top always says what to do next.",
+    "Raider: click a building to send bandits (right-click for a big raid). Raids start after 25 seconds and get cheaper the bigger the colony grows.",
+  ],
   width: W,
   height: H,
   sides: [

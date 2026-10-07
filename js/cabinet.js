@@ -426,7 +426,16 @@ export function createCabinet({ onSwap }) {
     if (!set) return;
     const r = set.round;
     r.draw(ctx);
-    if (r.cursors) r.cursors.forEach((c, i) => c && drawCursor(c, i));
+    if (r.cursors) {
+      ctx.save();
+      if (r.view) {
+        // A game with a follow camera draws zoomed in; put the crosshairs in the same place
+        ctx.scale(r.view.zoom, r.view.zoom);
+        ctx.translate(-r.view.x, -r.view.y);
+      }
+      r.cursors.forEach((c, i) => c && drawCursor(c, i));
+      ctx.restore();
+    }
 
     if (phase === "countdown") {
       ctx.fillStyle = "rgba(28, 17, 10, 0.55)";
