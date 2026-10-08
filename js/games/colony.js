@@ -1,18 +1,15 @@
-// Life in the Colony — a pocket version of the colony sim in the Notion design docs.
+// Life in the Colony — a pocket version of the colony sim in the Notion design docs, played as
+// a race between two rival colonies.
 //
-// The Founder starts in an overgrown village and works toward the "soft win" (Ikur): a village
-// that runs without them. Gather by minigame, build, hire visitors at the Tavern, and get every
-// required profession working. "Do it yourself, or delegate it" is the whole game: anything a
-// villager does, the Founder can do by hand until someone is hired for it.
+// Each side founds a village on an identical patch of land. Gather by minigame, build, hire
+// visitors at the Tavern, give workers tools, and let the village grow until it out-produces
+// you. "Do it yourself, or delegate it" is the whole game: anything a villager does, the
+// Founder can do by hand until someone is hired for it. The first colony to stockpile 1000 of
+// every resource wins — so every log spent on a building is a log you have to earn back.
 //
-// The Raider is the GDD's "prosperity attracts raids": the busier the colony, the faster the
-// Raider earns notoriety to spend on bandit raids. Raids damage buildings and wound villagers —
-// a setback, never a reset. Soldiers fight back, and the Founder fights *through* them: when a
-// bandit winds up, "Shields up!" makes the soldiers block (the brainstorm's colony combat).
-//
-// Each level switches on more of the design: tools wear out (always), then hunger and cooking,
-// then housing, then sickness, until the full eight-profession soft win is required.
-import { clamp, lerp, rand, chance, pick, Clock, formatTime } from "../util.js";
+// Each level switches on more of the design: tools wear out (always), then the courier and
+// blacksmith, then crops, hunger and cooking, then housing, then sickness.
+import { clamp, lerp, rand, chance, Clock } from "../util.js";
 
 const T = 36;
 const W = 20 * T;
@@ -20,16 +17,23 @@ const H = 14 * T;
 const HALL = { x: 9.5 * T, y: 7 * T };
 const REACH = 34; // trees, rocks and plots
 const BUILDING_REACH = 50; // the Hall, buildings and lots are bigger
-const SOFT_WIN_HOLD = 5;
-const HIRE_FEE = 3;
+const GOAL = 1000; // of every resource in play
+const YIELD = 20; // per minigame success
+const WORKER_YIELD = 40; // per villager trip — a hired hand out-gathers you, which is the point
+const HIRE_FEE = 30;
+const TOOL_COST = { ore: 10, log: 10 };
+const MEAL_COST = { crop: 20 }; // makes 2 meals
+const UPGRADE_COST = 40; // ore, to sharpen the Founder's own tools
+const HOME_COST = 20;
 const TOOL_DURABILITY = 6;
-const SLOT_STACK = 20;
+const SLOT_STACK = 200;
+const MAX_GATHERERS = 3; // of each gathering job
+const TIME_LIMIT = 600; // game seconds; if nobody reaches the goal, the closer colony wins
 
 const ORIGINS = {
-  forager: { name: "Forager", color: "#6f9a4a", weight: 0.32 },
-  mechanic: { name: "Mechanic", color: "#a0723c", weight: 0.38 },
-  warrior: { name: "Warrior", color: "#b0432f", weight: 0.15 },
-  magician: { name: "Magician", color: "#6a5aa8", weight: 0.15 },
+  forager: { name: "Forager", color: "#6f9a4a", weight: 0.4 },
+  mechanic: { name: "Mechanic", color: "#a0723c", weight: 0.42 },
+  magician: { name: "Magician", color: "#6a5aa8", weight: 0.18 },
 };
 
 // Villages filter jobs (brainstorm: "no blacksmith from the forestry village")
@@ -42,40 +46,36 @@ const JOBS = {
   cook: { name: "Cook", emoji: "🍲", origin: "forager", building: "kitchen", tool: null },
   builder: { name: "Builder", emoji: "🔨", origin: "mechanic", building: "yard", tool: "hammer" },
   healer: { name: "Healer", emoji: "💊", origin: "magician", building: "healer", tool: null },
-  soldier: { name: "Soldier", emoji: "🛡️", origin: "warrior", building: "barracks", tool: null },
 };
+const GATHERERS = ["lumberjack", "miner", "farmer"];
 
 const TOOL_ICON = { axe: "🪓", pickaxe: "⛏️", hoe: "🌱", hammer: "🔨" };
 const ITEM_ICON = { log: "🪵", ore: "🪨", crop: "🌾" };
+const ITEM_NAME = { log: "wood", ore: "stone", crop: "crops" };
 
 const BUILDINGS = {
-  tavern: { name: "Tavern", emoji: "🍺", at: [8, 2.2], cost: { log: 4 } },
-  minehut: { name: "Miner's Hut", emoji: "⛏️", at: [12, 2.2], cost: { log: 3 }, store: "ore" },
-  kitchen: { name: "Kitchen", emoji: "🍲", at: [6.4, 4.6], cost: { log: 3, ore: 1 } },
-  smithy: { name: "Smithy", emoji: "⚒️", at: [12.6, 4.6], cost: { log: 3, ore: 1 } },
-  woodhut: { name: "Woodchopper Hut", emoji: "🪓", at: [5.6, 7], cost: { log: 3 }, store: "log" },
-  barracks: { name: "Training Grounds", emoji: "🛡️", at: [13.4, 7], cost: { log: 4, ore: 1 } },
-  healer: { name: "Healer's Hut", emoji: "💊", at: [6.4, 9.6], cost: { log: 3, crop: 1 } },
-  farm: { name: "Farm", emoji: "🌻", at: [12.6, 9.6], cost: { log: 3 }, store: "crop" },
-  post: { name: "Courier Post", emoji: "📦", at: [8, 12], cost: { log: 3 } },
-  yard: { name: "Builder's Yard", emoji: "🔨", at: [11, 12], cost: { log: 3 } },
+  tavern: { name: "Tavern", emoji: "🍺", at: [8, 2.2], cost: { log: 40 } },
+  minehut: { name: "Miner's Hut", emoji: "⛏️", at: [12, 2.2], cost: { log: 30 }, store: "ore" },
+  kitchen: { name: "Kitchen", emoji: "🍲", at: [6.4, 4.6], cost: { log: 30, ore: 10 } },
+  smithy: { name: "Smithy", emoji: "⚒️", at: [12.6, 4.6], cost: { log: 30, ore: 10 } },
+  woodhut: { name: "Woodchopper Hut", emoji: "🪓", at: [5.6, 7], cost: { log: 30 }, store: "log" },
+  healer: { name: "Healer's Hut", emoji: "💊", at: [6.4, 9.6], cost: { log: 30, crop: 10 } },
+  farm: { name: "Farm", emoji: "🌻", at: [12.6, 9.6], cost: { log: 30 }, store: "crop" },
+  post: { name: "Courier Post", emoji: "📦", at: [8, 12], cost: { log: 30 } },
+  yard: { name: "Builder's Yard", emoji: "🔨", at: [11, 12], cost: { log: 30 } },
 };
 const HOME_SPOTS = [[8.6, 9.3], [9.6, 9.3], [10.6, 9.3], [8.6, 10.4], [9.6, 10.4], [10.6, 10.4], [9.1, 11.2], [10.1, 11.2]];
 
-// Each level turns on more of the design and asks for more of the soft win
+// Each level turns on more of the design. `res` is what has to reach 1000.
 const LEVELS = [
-  { roles: ["lumberjack", "miner"], hunger: false, homes: false, sickness: false },
-  { roles: ["lumberjack", "miner", "courier", "blacksmith"], hunger: false, homes: false, sickness: false },
-  { roles: ["lumberjack", "miner", "courier", "blacksmith", "farmer", "cook"], hunger: true, homes: false, sickness: false },
-  { roles: ["lumberjack", "miner", "courier", "blacksmith", "farmer", "cook", "builder"], hunger: true, homes: true, sickness: false },
-  { roles: ["lumberjack", "miner", "courier", "blacksmith", "farmer", "cook", "builder", "healer"], hunger: true, homes: true, sickness: true },
+  { roles: ["lumberjack", "miner"], res: ["log", "ore"], hunger: false, homes: false, sickness: false },
+  { roles: ["lumberjack", "miner", "courier", "blacksmith"], res: ["log", "ore"], hunger: false, homes: false, sickness: false },
+  { roles: ["lumberjack", "miner", "courier", "blacksmith", "farmer", "cook"], res: ["log", "ore", "crop"], hunger: true, homes: false, sickness: false },
+  { roles: ["lumberjack", "miner", "courier", "blacksmith", "farmer", "cook", "builder"], res: ["log", "ore", "crop"], hunger: true, homes: true, sickness: false },
+  { roles: ["lumberjack", "miner", "courier", "blacksmith", "farmer", "cook", "builder", "healer"], res: ["log", "ore", "crop"], hunger: true, homes: true, sickness: true },
 ];
-// Round length and how quickly the Raider earns notoriety (tuned with tests/fairness.js)
-const ROUND_TIME = [100, 150, 170, 200, 240]; // game seconds (the colony runs at 0.75x, so ~1.3x in real time)
-const NOTORIETY_RATE = [1.0, 0.47, 0.21, 0.18, 0.23];
-const RAIDS = { small: { bandits: 2, cost: 5 }, big: { bandits: 5, cost: 12 } };
-const RAID_GRACE = 25; // seconds before the first raid when the computer plays the Founder
-const PEACE = 45; // a person playing the Founder gets this long (one real minute at 0.75x) with no raids and no clock
+
+const SIDE_EMOJI = ["🧑‍🌾", "🤠"];
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
 const tilePos = ([tx, ty]) => ({ x: tx * T, y: ty * T });
@@ -98,86 +98,80 @@ function pickOrigin() {
   return "mechanic";
 }
 
-function createRound({ level, inputs, humans = [false, false] }) {
+// Both colonies get the same land, so neither starts with a luckier forest
+function makeLayout() {
+  return {
+    trees: scatter(18, 0.5, 3.6, 1.3, 12.6, 1.05),
+    rocks: scatter(8, 15.4, 19.5, 1.3, 3.9, 1.0),
+    plots: Array.from({ length: 8 }, (_, i) => ({ x: (15.6 + (i % 4) * 1.15) * T, y: (10.4 + Math.floor(i / 4) * 1.4) * T, growth: rand(0.3, 0.9) })),
+  };
+}
+
+// ---------- one colony: its land, stockpile, villagers and Founder ----------
+
+function createColony({ level, input, human, side, layout }) {
   const cfg = LEVELS[level - 1];
-  const r = {
+  const c = {
     level,
     cfg,
-    time: ROUND_TIME[level - 1],
-    stock: { log: 4, ore: 1, crop: 0, axe: 0, pickaxe: 0, hoe: 0, hammer: 0 },
-    trees: scatter(18, 0.5, 3.6, 1.3, 12.6, 1.05).map((p) => ({ ...p, grown: true, regrow: 0, claimed: null })),
-    rocks: scatter(8, 15.4, 19.5, 1.3, 3.9, 1.0).map((p) => ({ ...p, ore: 3, regrow: 0, claimed: null })),
-    plots: [],
+    side,
+    human,
+    emoji: SIDE_EMOJI[side],
+    stock: { log: 40, ore: 10, crop: 0, axe: 0, pickaxe: 0, hoe: 0, hammer: 0 },
+    trees: layout.trees.map((p) => ({ ...p, grown: true, regrow: 0, claimed: null })),
+    rocks: layout.rocks.map((p) => ({ ...p, ore: 3, regrow: 0, claimed: null })),
+    plots: layout.plots.map((p) => ({ ...p, claimed: null })),
     buildings: {},
     homes: 2, // the Player Hall sleeps two
     villagers: [],
     visitors: [],
     visitT: 3,
-    bandits: [],
-    sparks: [],
     player: { x: HALL.x, y: HALL.y + 1.15 * T, slots: [null, null, null, null], toolLevel: 1, face: 1 },
     mg: null, // the Founder's current minigame
-    shield: 0,
-    shieldCd: 0,
-    notoriety: 1,
-    notoRate: NOTORIETY_RATE[level - 1],
-    raidCd: humans[0] ? 0 : RAID_GRACE,
-    peace: humans[0] ? PEACE : 0,
-    softWin: 0,
     msg: null,
     clock: 0,
     nextId: 1,
-    winner: null,
-    endReason: "",
-    // Zoom in on the Founder when a person plays them against the computer; a human Raider
-    // needs to see the whole map to aim, so they get the full view.
-    follow: humans[0] && !humans[1],
-    founderHuman: humans[0],
-    timeScale: 0.75, // the whole colony runs at three-quarter speed
-    countdown: 6,
+    hintTarget: null,
     view: null,
   };
-  for (let i = 0; i < 8; i++) r.plots.push({ x: (15.6 + (i % 4) * 1.15) * T, y: (10.4 + Math.floor(i / 4) * 1.4) * T, growth: rand(0.3, 0.9), claimed: null });
   for (const [key, b] of Object.entries(BUILDINGS)) {
-    r.buildings[key] = { key, ...tilePos(b.at), vines: 1, built: false, damaged: false, stock: 0, meals: 0 };
+    c.buildings[key] = { key, ...tilePos(b.at), vines: 1, built: false, stock: 0, meals: 0 };
   }
-  r.cursors = [null, { x: W * 0.6, y: H / 2, speed: 460, x0: 0, x1: W, y0: 0, y1: H }];
 
-  const end = (winner, reason) => {
-    r.winner = winner;
-    r.endReason = reason;
-  };
-  const say = (text) => (r.msg = { text, t: 2.2 });
+  const say = (text) => (c.msg = { text, t: 2.2 });
 
   // ---------- helpers shared by the Founder, the villagers and the bots ----------
 
-  const usable = (b) => b && b.built && !b.damaged;
-  r.usable = usable;
-  const villagersIn = (job) => r.villagers.filter((v) => v.job === job);
+  const built = (key) => c.buildings[key].built;
+  const villagersIn = (job) => c.villagers.filter((v) => v.job === job);
   const neededJobs = () => cfg.roles;
   const toolsInPlay = () => [...new Set(neededJobs().map((j) => JOBS[j].tool).filter(Boolean))];
 
   function isWorking(v) {
-    if (v.wounded || v.sick) return false;
+    if (v.sick) return false;
     const job = JOBS[v.job];
-    if (!usable(r.buildings[job.building])) return false;
+    if (!built(job.building)) return false;
     if (cfg.hunger && v.hunger >= 100) return false;
-    if (job.tool && !(v.tool && v.tool.dur > 0) && r.stock[job.tool] <= 0) return false;
+    if (job.tool && !(v.tool && v.tool.dur > 0) && c.stock[job.tool] <= 0) return false;
     return true;
   }
-  r.isWorking = isWorking;
-  const haveText = (cost) => Object.keys(cost).map((k) => `${r.stock[k] + bagCount(k)} ${ITEM_ICON[k]}`).join(" + ");
-  r.working = (job) => r.villagers.some((v) => v.job === job && isWorking(v));
-  r.rolesFilled = () => neededJobs().filter((j) => r.working(j)).length;
+  c.working = (job) => c.villagers.some((v) => v.job === job && isWorking(v));
+  c.workingCount = (job) => c.villagers.filter((v) => v.job === job && isWorking(v)).length;
+  c.villagersIn = villagersIn;
+
+  // Everything the colony owns counts toward the goal: the Hall, the huts' piles and the bag
+  c.total = (item) => c.stock[item] + bagCount(item) + Object.values(c.buildings).reduce((n, b) => n + (BUILDINGS[b.key].store === item ? b.stock : 0), 0);
+  c.done = () => cfg.res.every((item) => c.total(item) >= GOAL);
+  c.score = () => cfg.res.reduce((n, item) => n + Math.min(GOAL, c.total(item)), 0);
 
   // Which tool the colony is shortest of: workers without one, minus spares at the Hall
-  r.toolNeeded = () => {
+  c.toolNeeded = () => {
     let best = null;
     let bestGap = 0;
     for (const tool of toolsInPlay()) {
       const job = Object.keys(JOBS).find((j) => JOBS[j].tool === tool);
       const lacking = villagersIn(job).filter((v) => !(v.tool && v.tool.dur > 0)).length;
-      const gap = lacking + (r.buildings[JOBS[job].building].built ? 1 : 0) - r.stock[tool];
+      const gap = lacking + (built(JOBS[job].building) ? 1 : 0) - c.stock[tool];
       if (gap > bestGap) {
         bestGap = gap;
         best = tool;
@@ -186,70 +180,78 @@ function createRound({ level, inputs, humans = [false, false] }) {
     return best;
   };
 
-  r.openJob = () => {
+  // The next job the Tavern can fill: every required job once, then extra gatherers
+  c.openJob = () => {
     for (const job of neededJobs()) {
-      if (r.buildings[JOBS[job].building].built && villagersIn(job).length === 0) return job;
+      if (built(JOBS[job].building) && villagersIn(job).length === 0) return job;
     }
-    if (r.buildings.barracks.built && villagersIn("soldier").length < 3) return "soldier";
-    return null;
+    let best = null;
+    for (const job of GATHERERS) {
+      if (!neededJobs().includes(job) || !built(JOBS[job].building)) continue;
+      const n = villagersIn(job).length;
+      if (n < MAX_GATHERERS && (!best || n < villagersIn(best).length)) best = job;
+    }
+    return best;
   };
+  c.isExtraJob = (job) => villagersIn(job).length > 0;
 
-  r.reputation = () => Object.values(r.buildings).filter((b) => b.built).length + r.villagers.length;
+  c.reputation = () => Object.values(c.buildings).filter((b) => b.built).length + c.villagers.length;
 
-  // ---------- the Founder's bag (four slots, stacks of twenty) ----------
+  // ---------- the Founder's bag (four slots) ----------
 
-  const bagCount = (item) => r.player.slots.reduce((n, s) => n + (s && s.item === item ? s.n : 0), 0);
-  r.bagCount = bagCount;
-  r.bagTotal = () => r.player.slots.reduce((n, s) => n + (s ? s.n : 0), 0);
-  function bagAdd(item, n = 1) {
+  const bagCount = (item) => c.player.slots.reduce((n, s) => n + (s && s.item === item ? s.n : 0), 0);
+  c.bagCount = bagCount;
+  c.bagTotal = () => c.player.slots.reduce((n, s) => n + (s ? s.n : 0), 0);
+  function bagAdd(item, n) {
     let left = n;
-    for (const s of r.player.slots) if (s && s.item === item && s.n < SLOT_STACK && left) {
+    for (const s of c.player.slots) if (s && s.item === item && s.n < SLOT_STACK && left) {
       const put = Math.min(left, SLOT_STACK - s.n);
       s.n += put;
       left -= put;
     }
-    for (let i = 0; i < 4 && left; i++) if (!r.player.slots[i]) {
+    for (let i = 0; i < 4 && left; i++) if (!c.player.slots[i]) {
       const put = Math.min(left, SLOT_STACK);
-      r.player.slots[i] = { item, n: put };
+      c.player.slots[i] = { item, n: put };
       left -= put;
     }
     return n - left;
   }
-  r.bagHasRoom = (item) => r.player.slots.some((s) => !s || (s.item === item && s.n < SLOT_STACK));
+  c.bagHasRoom = (item) => c.player.slots.some((s) => !s || (s.item === item && s.n < SLOT_STACK));
 
-  const canAfford = (cost) => Object.entries(cost).every(([k, n]) => r.stock[k] >= n);
-  const pay = (cost) => Object.entries(cost).forEach(([k, n]) => (r.stock[k] -= n));
-  r.canAfford = canAfford;
+  const canAfford = (cost) => Object.entries(cost).every(([k, n]) => c.stock[k] >= n);
+  const pay = (cost) => Object.entries(cost).forEach(([k, n]) => (c.stock[k] -= n));
+  c.canAfford = canAfford;
 
   // The Founder pays from their bag first and the Hall for the rest — no trip to the Hall needed
-  const canPay = (cost) => Object.entries(cost).every(([k, n]) => r.stock[k] + bagCount(k) >= n);
-  r.canPay = canPay;
+  const canPay = (cost) => Object.entries(cost).every(([k, n]) => c.stock[k] + bagCount(k) >= n);
+  c.canPay = canPay;
   function payBoth(cost) {
     for (const [k, n] of Object.entries(cost)) {
       let left = n;
       for (let i = 0; i < 4 && left; i++) {
-        const sl = r.player.slots[i];
+        const sl = c.player.slots[i];
         if (!sl || sl.item !== k) continue;
         const take = Math.min(left, sl.n);
         sl.n -= take;
         left -= take;
-        if (!sl.n) r.player.slots[i] = null;
+        if (!sl.n) c.player.slots[i] = null;
       }
-      r.stock[k] -= left;
+      c.stock[k] -= left;
     }
   }
+  const haveText = (cost) => Object.keys(cost).map((k) => `${c.stock[k] + bagCount(k)} ${ITEM_ICON[k]}`).join(" + ");
 
   // ---------- what the Founder is standing at ----------
 
   function interactables() {
     const list = [{ kind: "hall", obj: HALL, x: HALL.x, y: HALL.y, reach: BUILDING_REACH }];
-    for (const t of r.trees) if (t.grown) list.push({ kind: "tree", obj: t, x: t.x, y: t.y });
-    for (const k of r.rocks) if (k.ore > 0) list.push({ kind: "rock", obj: k, x: k.x, y: k.y });
-    for (const p of r.plots) if (p.growth >= 1) list.push({ kind: "plot", obj: p, x: p.x, y: p.y });
-    for (const b of Object.values(r.buildings)) list.push({ kind: b.built ? "building" : "lot", obj: b, x: b.x, y: b.y, reach: BUILDING_REACH });
+    for (const t of c.trees) if (t.grown) list.push({ kind: "tree", obj: t, x: t.x, y: t.y });
+    for (const k of c.rocks) if (k.ore > 0) list.push({ kind: "rock", obj: k, x: k.x, y: k.y });
+    for (const p of c.plots) if (p.growth >= 1) list.push({ kind: "plot", obj: p, x: p.x, y: p.y });
+    for (const b of Object.values(c.buildings)) list.push({ kind: b.built ? "building" : "lot", obj: b, x: b.x, y: b.y, reach: BUILDING_REACH });
     return list;
   }
-  r.targetAt = (pos) => {
+  c.targetAt = (pos) => {
     let best = null;
     for (const it of interactables()) {
       // Compare by how far inside its reach you are, so a big building does not drown out a tree
@@ -261,25 +263,25 @@ function createRound({ level, inputs, humans = [false, false] }) {
 
   function startMinigame(kind, target) {
     const speed = 0.85 + 0.08 * (level - 1);
-    r.mg = { kind, target, phase: 0, dir: 1, speed, cool: 0, zoneC: rand(0.25, 0.75), zoneW: 0.24 + 0.06 * (r.player.toolLevel - 1) };
+    c.mg = { kind, target, phase: 0, dir: 1, speed, cool: 0, zoneC: rand(0.25, 0.75), zoneW: 0.24 + 0.06 * (c.player.toolLevel - 1) };
   }
 
   function act() {
-    const it = r.targetAt(r.player);
+    const it = c.targetAt(c.player);
     if (!it) return say("Nothing to do here");
     const { kind, obj } = it;
     if (kind === "tree" || kind === "rock" || kind === "plot") {
       const item = { tree: "log", rock: "ore", plot: "crop" }[kind];
-      if (!r.bagHasRoom(item)) return say("Bag full — drop it at the Hall");
+      if (!c.bagHasRoom(item)) return say("Bag full — empty it at the Hall");
       return startMinigame(kind, obj);
     }
     if (kind === "hall") {
       let n = 0;
-      r.player.slots.forEach((s, i) => {
+      c.player.slots.forEach((s, i) => {
         if (!s) return;
-        r.stock[s.item] += s.n;
+        c.stock[s.item] += s.n;
         n += s.n;
-        r.player.slots[i] = null;
+        c.player.slots[i] = null;
       });
       return say(n ? `Stored ${n} at the Hall` : "The Hall: your stockpile");
     }
@@ -294,13 +296,6 @@ function createRound({ level, inputs, humans = [false, false] }) {
       obj.built = true;
       return say(`Built the ${BUILDINGS[obj.key].name}`);
     }
-    // A built building: repair first, then whatever that building does
-    if (obj.damaged) {
-      if (!canPay({ log: 2 })) return say("Repairs need 2 🪵");
-      payBoth({ log: 2 });
-      obj.damaged = false;
-      return say("Repaired");
-    }
     const def = BUILDINGS[obj.key];
     if (obj.key === "tavern") return hire();
     if (def.store && obj.stock > 0) {
@@ -309,67 +304,64 @@ function createRound({ level, inputs, humans = [false, false] }) {
       return say(took ? `Picked up ${took} ${ITEM_ICON[def.store]}` : "Bag full");
     }
     if (obj.key === "smithy") {
-      if (r.working("blacksmith") && r.player.toolLevel < 3 && r.stock.ore >= 4) {
-        r.stock.ore -= 4;
-        r.player.toolLevel++;
-        return say(`Your tools are now level ${r.player.toolLevel}`);
+      if (c.working("blacksmith") && c.player.toolLevel < 3 && c.stock.ore >= UPGRADE_COST) {
+        c.stock.ore -= UPGRADE_COST;
+        c.player.toolLevel++;
+        return say(`Your tools are now level ${c.player.toolLevel}`);
       }
-      if (r.working("blacksmith")) return say("The blacksmith has the forge");
-      if (!r.toolNeeded()) return say("Nobody needs a tool right now");
-      if (!canPay({ ore: 1, log: 1 })) return say("A tool needs 1 🪨 + 1 🪵");
+      if (c.working("blacksmith")) return say("The blacksmith has the forge");
+      if (!c.toolNeeded()) return say("Nobody needs a tool right now");
+      if (!canPay(TOOL_COST)) return say(`A tool needs ${costText(TOOL_COST)}`);
       return startMinigame("forge", obj);
     }
     if (obj.key === "kitchen") {
-      if (r.working("cook")) return say("The cook has the kitchen");
-      if (!canPay({ crop: 2 })) return say("Two meals need 2 🌾");
+      if (c.working("cook")) return say("The cook has the kitchen");
+      if (!canPay(MEAL_COST)) return say(`Two meals need ${costText(MEAL_COST)}`);
       return startMinigame("cook", obj);
     }
     say(def.name);
   }
 
   function hire() {
-    const tavern = r.buildings.tavern;
-    const job = r.openJob();
+    const tavern = c.buildings.tavern;
+    const job = c.openJob();
     if (!job) return say("No open jobs — build a workplace first");
     const want = JOBS[job].origin;
-    const i = r.visitors.findIndex((v) => v.origin === want);
+    const i = c.visitors.findIndex((v) => v.origin === want);
     if (i < 0) return say(`Need a ${ORIGINS[want].name} for the ${JOBS[job].name} job`);
     if (!canPay({ log: HIRE_FEE })) return say(`Hiring costs ${HIRE_FEE} 🪵`);
     payBoth({ log: HIRE_FEE });
-    const visitor = r.visitors.splice(i, 1)[0];
-    r.villagers.push({
-      id: r.nextId++, origin: visitor.origin, job, x: tavern.x, y: tavern.y + 14,
-      task: [], tool: null, carry: null, hunger: 0, wounded: false, sick: false, recover: 0, atk: 0, blocked: null,
+    const visitor = c.visitors.splice(i, 1)[0];
+    c.villagers.push({
+      id: c.nextId++, origin: visitor.origin, job, x: tavern.x, y: tavern.y + 14,
+      task: [], tool: null, carry: null, hunger: 0, sick: false, recover: 0, blocked: null,
     });
     say(`Hired a ${ORIGINS[visitor.origin].name} as ${JOBS[job].name}`);
   }
 
   function finishMinigame() {
-    const { kind, target } = r.mg;
-    r.mg = null;
+    const { kind, target } = c.mg;
+    c.mg = null;
     if (kind === "tree" && target.grown) {
       target.grown = false;
       target.regrow = 7;
-      bagAdd("log", 2);
+      bagAdd("log", YIELD);
     } else if (kind === "rock" && target.ore > 0) {
       target.ore--;
       if (!target.ore) target.regrow = 9;
-      bagAdd("ore", 2);
+      bagAdd("ore", YIELD);
     } else if (kind === "plot" && target.growth >= 1) {
       target.growth = 0;
-      bagAdd("crop", 2);
-    } else if (kind === "clear" && target.vines > 0) {
-      target.vines--;
-      if (!target.vines) say(`Cleared the ${BUILDINGS[target.key].name} lot`);
+      bagAdd("crop", YIELD);
     } else if (kind === "forge") {
-      const tool = r.toolNeeded();
-      if (tool && canPay({ ore: 1, log: 1 })) {
-        payBoth({ ore: 1, log: 1 });
-        r.stock[tool]++;
+      const tool = c.toolNeeded();
+      if (tool && canPay(TOOL_COST)) {
+        payBoth(TOOL_COST);
+        c.stock[tool]++;
         say(`Forged a ${tool} ${TOOL_ICON[tool]}`);
       }
-    } else if (kind === "cook" && canPay({ crop: 2 })) {
-      payBoth({ crop: 2 });
+    } else if (kind === "cook" && canPay(MEAL_COST)) {
+      payBoth(MEAL_COST);
       target.meals += 2;
       say("Cooked a meal 🍲");
     }
@@ -381,10 +373,10 @@ function createRound({ level, inputs, humans = [false, false] }) {
 
   const walk = (p) => ({ type: "walk", x: p.x, y: p.y });
   const wait = (t, done) => ({ type: "wait", t, done });
-  const idle = (v) => [walk({ x: HALL.x + rand(-40, 40), y: HALL.y + rand(30, 60) }), wait(1)];
+  const idle = () => [walk({ x: HALL.x + rand(-40, 40), y: HALL.y + rand(30, 60) }), wait(1)];
 
   function release(v) {
-    for (const list of [r.trees, r.rocks, r.plots]) for (const n of list) if (n.claimed === v) n.claimed = null;
+    for (const list of [c.trees, c.rocks, c.plots]) for (const n of list) if (n.claimed === v) n.claimed = null;
     v.task = [];
     v.carry = null;
   }
@@ -396,9 +388,9 @@ function createRound({ level, inputs, humans = [false, false] }) {
   };
 
   function gatherTask(v, job) {
-    const hut = r.buildings[job.building];
+    const hut = c.buildings[job.building];
     const kind = { lumberjack: "tree", miner: "rock", farmer: "plot" }[v.job];
-    const list = { tree: r.trees, rock: r.rocks, plot: r.plots }[kind];
+    const list = { tree: c.trees, rock: c.rocks, plot: c.plots }[kind];
     const ready = { tree: (n) => n.grown, rock: (n) => n.ore > 0, plot: (n) => n.growth >= 1 }[kind];
     const node = nearestFree(list, v, ready);
     if (!node) return null;
@@ -416,18 +408,18 @@ function createRound({ level, inputs, humans = [false, false] }) {
         v.carry = item;
       }),
       walk(hut),
-      wait(0.2, () => { hut.stock = Math.min(40, hut.stock + 2); v.carry = null; }),
+      wait(0.2, () => { hut.stock += WORKER_YIELD; v.carry = null; }),
     ];
   }
 
   function fetchTool(v, tool) {
-    if (r.stock[tool] <= 0) {
+    if (c.stock[tool] <= 0) {
       v.blocked = `no ${tool}`;
       return null;
     }
     return [walk(HALL), wait(0.3, () => {
-      if (r.stock[tool] <= 0) return false;
-      r.stock[tool]--;
+      if (c.stock[tool] <= 0) return false;
+      c.stock[tool]--;
       v.tool = { type: tool, dur: TOOL_DURABILITY };
     })];
   }
@@ -446,7 +438,7 @@ function createRound({ level, inputs, humans = [false, false] }) {
     courier(v) {
       let hut = null;
       for (const key of ["woodhut", "minehut", "farm"]) {
-        const b = r.buildings[key];
+        const b = c.buildings[key];
         if (b.built && b.stock > 0 && (!hut || b.stock > hut.stock)) hut = b;
       }
       if (!hut) return null;
@@ -454,59 +446,51 @@ function createRound({ level, inputs, humans = [false, false] }) {
       let load = 0;
       return [
         walk(hut),
-        wait(0.3, () => { load = Math.min(8, hut.stock); hut.stock -= load; v.carry = load ? item : null; }),
+        wait(0.3, () => { load = Math.min(80, hut.stock); hut.stock -= load; v.carry = load ? item : null; }),
         walk(HALL),
-        wait(0.3, () => { r.stock[item] += load; v.carry = null; }),
+        wait(0.3, () => { c.stock[item] += load; v.carry = null; }),
       ];
     },
-    blacksmith(v) {
-      const tool = r.toolNeeded();
-      if (!tool || r.stock.ore < 1 || r.stock.log < 1) return null;
-      return [walk(HALL), takeFromHall({ ore: 1, log: 1 }), walk(r.buildings.smithy), wait(1.6, () => { r.stock[tool]++; })];
+    blacksmith() {
+      const tool = c.toolNeeded();
+      if (!tool || !canAfford(TOOL_COST)) return null;
+      return [walk(HALL), takeFromHall(TOOL_COST), walk(c.buildings.smithy), wait(1.6, () => { c.stock[tool]++; })];
     },
-    cook(v) {
-      const kitchen = r.buildings.kitchen;
-      if (kitchen.meals >= 6 || r.stock.crop < 2) return null;
-      return [walk(HALL), takeFromHall({ crop: 2 }), walk(kitchen), wait(1.6, () => { kitchen.meals += 2; })];
+    cook() {
+      const kitchen = c.buildings.kitchen;
+      if (kitchen.meals >= 6 || !canAfford(MEAL_COST)) return null;
+      return [walk(HALL), takeFromHall(MEAL_COST), walk(kitchen), wait(1.6, () => { kitchen.meals += 2; })];
     },
     builder(v) {
-      const broken = Object.values(r.buildings).find((b) => b.built && b.damaged);
-      if (broken && r.stock.log >= 2) {
-        return [walk(HALL), takeFromHall({ log: 2 }), walk(broken), wait(2.5, () => { broken.damaged = false; v.tool.dur--; })];
-      }
-      if (cfg.homes && r.homes < r.villagers.length && r.homes - 2 < HOME_SPOTS.length && r.stock.log >= 2) {
-        const spot = tilePos(HOME_SPOTS[r.homes - 2]);
-        return [walk(HALL), takeFromHall({ log: 2 }), walk(spot), wait(2, () => { r.homes++; v.tool.dur--; })];
+      if (cfg.homes && c.homes < c.villagers.length && c.homes - 2 < HOME_SPOTS.length && c.stock.log >= HOME_COST) {
+        const spot = tilePos(HOME_SPOTS[c.homes - 2]);
+        return [walk(HALL), takeFromHall({ log: HOME_COST }), walk(spot), wait(2, () => { c.homes++; v.tool.dur--; })];
       }
       return null;
     },
-    healer: () => [walk(r.buildings.healer), wait(1)],
+    healer: () => [walk(c.buildings.healer), wait(1)],
   };
 
   function decide(v) {
     v.blocked = null;
     const job = JOBS[v.job];
-    if (cfg.hunger && v.hunger >= 60 && usable(r.buildings.kitchen) && r.buildings.kitchen.meals > 0) {
-      const kitchen = r.buildings.kitchen;
+    if (cfg.hunger && v.hunger >= 60 && built("kitchen") && c.buildings.kitchen.meals > 0) {
+      const kitchen = c.buildings.kitchen;
       return [walk(kitchen), wait(0.8, () => {
         if (kitchen.meals <= 0) return false;
         kitchen.meals--;
         v.hunger = 0;
       })];
     }
-    if (!usable(r.buildings[job.building])) {
-      v.blocked = "workplace down";
-      return idle(v);
-    }
-    if (job.tool && !(v.tool && v.tool.dur > 0)) return fetchTool(v, job.tool) || idle(v);
-    return PROVIDERS[v.job](v, job) || idle(v);
+    if (job.tool && !(v.tool && v.tool.dur > 0)) return fetchTool(v, job.tool) || idle();
+    return PROVIDERS[v.job](v, job) || idle();
   }
 
   function speedOf(v) {
     let s = 82;
     if (cfg.hunger && v.hunger >= 100) s *= 0.5;
-    if (cfg.homes && r.villagers.indexOf(v) >= r.homes) s *= 0.75; // homeless
-    if (v.wounded || v.sick) s *= 0.6;
+    if (cfg.homes && c.villagers.indexOf(v) >= c.homes) s *= 0.75; // homeless
+    if (v.sick) s *= 0.6;
     return s;
   }
 
@@ -525,29 +509,22 @@ function createRound({ level, inputs, humans = [false, false] }) {
 
   function runVillager(v, dt) {
     if (cfg.hunger) v.hunger = Math.min(100, v.hunger + 0.8 * dt);
-    if (cfg.sickness && !v.sick && !v.wounded && v.job !== "healer" && chance(0.004 * dt)) {
+    if (cfg.sickness && !v.sick && v.job !== "healer" && chance(0.004 * dt)) {
       v.sick = true;
       v.recover = 22;
       release(v);
     }
 
-    if (v.wounded || v.sick) {
-      const hut = r.buildings.healer;
-      if (r.working("healer") && usable(hut)) {
-        if (moveToward(v, hut, speedOf(v), dt)) {
-          v.recover -= dt * 8; // a healer cuts recovery from ~20 days to ~1
-        }
+    if (v.sick) {
+      const hut = c.buildings.healer;
+      if (c.working("healer")) {
+        if (moveToward(v, hut, speedOf(v), dt)) v.recover -= dt * 8; // a healer cuts recovery to a few seconds
       } else {
         v.recover -= dt;
       }
-      if (v.recover <= 0) {
-        v.wounded = false;
-        v.sick = false;
-      }
+      if (v.recover <= 0) v.sick = false;
       return;
     }
-
-    if (v.job === "soldier") return runSoldier(v, dt);
 
     if (!v.task.length) v.task = decide(v);
     const s = v.task[0];
@@ -564,168 +541,72 @@ function createRound({ level, inputs, humans = [false, false] }) {
     }
   }
 
-  function runSoldier(v, dt) {
-    let target = null;
-    for (const b of r.bandits) if (!target || dist(b, v) < dist(target, v)) target = b;
-    if (target) {
-      if (dist(target, v) > 18) moveToward(v, target, 72, dt);
-    } else {
-      const post = r.buildings.barracks;
-      if (!v.task.length) v.task = [walk({ x: post.x + rand(-30, 30), y: post.y + rand(16, 34) }), wait(1.5)];
-      const s = v.task[0];
-      if (s.type === "walk") { if (moveToward(v, s, 50, dt)) v.task.shift(); }
-      else if ((s.t -= dt) <= 0) v.task.shift();
-    }
-  }
-
-  function wound(v) {
-    if (v.wounded) return;
-    v.wounded = true;
-    v.recover = 18;
-    release(v);
-  }
-
-  // ---------- raids ----------
-
-  r.raidTargetAt = (pos) => {
-    let best = null;
-    for (const b of Object.values(r.buildings)) {
-      if (b.built && dist(b, pos) < 70 && (!best || dist(b, pos) < dist(best, pos))) best = b;
-    }
-    if (!best && dist(HALL, pos) < 70) best = { key: "hall", ...HALL };
-    return best;
-  };
-
-  function raid(size) {
-    const spec = RAIDS[size];
-    if (r.peace > 0 || r.raidCd > 0 || r.notoriety < spec.cost) return;
-    const target = r.raidTargetAt(r.cursors[1]);
-    if (!target) return;
-    r.notoriety -= spec.cost;
-    r.raidCd = 6;
-    const y = rand(6, 8) * T;
-    for (let i = 0; i < spec.bandits; i++) {
-      r.bandits.push({ x: W + 14 + i * 20, y: y + rand(-16, 16), target: target.key, tx: target.x, ty: target.y, hp: 3, cd: rand(0.5, 1.2), windup: 0, engaged: false });
-    }
-  }
-
-  function impact(b) {
-    if (b.target === "hall") {
-      for (const item of ["log", "ore", "crop"]) r.stock[item] -= Math.floor(r.stock[item] * 0.35);
-    } else {
-      r.buildings[b.target].damaged = true;
-    }
-    for (const v of r.villagers) if (v.job !== "soldier" && Math.hypot(v.x - b.tx, v.y - b.ty) < 55) wound(v);
-    r.sparks.push({ x: b.tx, y: b.ty, t: 0.8, text: "🔥" });
-  }
-
-  function runBandits(dt) {
-    const soldiers = r.villagers.filter((v) => v.job === "soldier" && !v.wounded);
-    for (const b of r.bandits) {
-      const foe = soldiers.find((s) => dist(s, b) < 24);
-      b.engaged = !!foe;
-      if (foe) {
-        // The soldier swings on their own; the bandit telegraphs before every strike
-        foe.atk -= dt;
-        if (foe.atk <= 0) {
-          foe.atk = 0.8;
-          b.hp--;
-        }
-        if (b.windup > 0) {
-          b.windup -= dt;
-          if (b.windup <= 0) {
-            if (r.shield > 0) r.sparks.push({ x: foe.x, y: foe.y - 14, t: 0.6, text: "🛡️" });
-            else wound(foe);
-            b.cd = rand(1.1, 1.7);
-          }
-        } else if ((b.cd -= dt) <= 0) {
-          b.windup = 0.75;
-        }
-      } else {
-        b.windup = 0;
-        if (moveToward(b, { x: b.tx, y: b.ty }, 46, dt)) {
-          impact(b);
-          b.hp = 0;
-        }
-      }
-    }
-    r.bandits = r.bandits.filter((b) => b.hp > 0);
-  }
-
   // ---------- explaining what's going on, for a human Founder ----------
 
-  const nameOf = (key) => (key === "hall" ? "Hall" : BUILDINGS[key].name);
   const WHERE = { log: "chop trees in the forest (left)", ore: "mine rocks (top right)", crop: "harvest crops in the fields (bottom right)" };
 
   // What pressing Space will do where the Founder is standing
-  r.promptFor = (it) => {
+  c.promptFor = (it) => {
     if (!it) return null;
     const { kind, obj } = it;
-    if (kind === "tree") return "Space: chop tree (+2 🪵)";
-    if (kind === "rock") return "Space: mine rock (+2 🪨)";
-    if (kind === "plot") return "Space: harvest (+2 🌾)";
-    if (kind === "hall") return r.bagTotal() ? `Space: store your bag at the Hall (${r.bagTotal()})` : "The Hall — your stockpile";
+    if (kind === "tree") return `Space: chop tree (+${YIELD} 🪵)`;
+    if (kind === "rock") return `Space: mine rock (+${YIELD} 🪨)`;
+    if (kind === "plot") return `Space: harvest (+${YIELD} 🌾)`;
+    if (kind === "hall") return c.bagTotal() ? `Space: empty your bag into the Hall (${c.bagTotal()})` : "The Hall — your stockpile";
     const name = BUILDINGS[obj.key].name;
     if (kind === "lot") {
       if (obj.vines > 0) return `Space: clear the vines off the ${name} lot`;
       const cost = BUILDINGS[obj.key].cost;
       return canPay(cost) ? `Space: build the ${name} (${costText(cost)})` : `${name} needs ${costText(cost)} — you have ${haveText(cost)}`;
     }
-    if (obj.damaged) return `Space: repair the ${name} (2 🪵)`;
     if (obj.key === "tavern") {
-      const job = r.openJob();
-      if (!job) return "Tavern: no open jobs yet — build a workplace";
+      const job = c.openJob();
+      if (!job) return "Tavern: no open jobs — build a workplace";
       const origin = JOBS[job].origin;
-      return r.visitors.some((v) => v.origin === origin)
+      return c.visitors.some((v) => v.origin === origin)
         ? `Space: hire a ${ORIGINS[origin].name} as ${JOBS[job].name} (${HIRE_FEE} 🪵)`
         : `Tavern: waiting for a ${ORIGINS[origin].name} to visit`;
     }
     const store = BUILDINGS[obj.key].store;
     if (store && obj.stock > 0) return `Space: pick up ${obj.stock} ${ITEM_ICON[store]}`;
     if (obj.key === "smithy") {
-      if (r.working("blacksmith")) return r.player.toolLevel < 3 ? "Space: upgrade your tools (4 🪨)" : "The Blacksmith is at work";
-      const tool = r.toolNeeded();
-      return tool ? `Space: forge a ${tool} (1 🪨 + 1 🪵)` : "Smithy: nobody needs a tool";
+      if (c.working("blacksmith")) return c.player.toolLevel < 3 ? `Space: sharpen your own tools (${UPGRADE_COST} 🪨)` : "The Blacksmith is at work";
+      const tool = c.toolNeeded();
+      return tool ? `Space: forge a ${tool} (${costText(TOOL_COST)})` : "Smithy: nobody needs a tool";
     }
-    if (obj.key === "kitchen") return r.working("cook") ? "The Cook is at work" : "Space: cook 2 meals (2 🌾)";
+    if (obj.key === "kitchen") return c.working("cook") ? "The Cook is at work" : `Space: cook 2 meals (${costText(MEAL_COST)})`;
     return name;
   };
 
   const nearestNode = (item) => {
-    const pool = item === "log" ? r.trees.filter((t) => t.grown) : item === "ore" ? r.rocks.filter((k) => k.ore > 0) : r.plots.filter((q) => q.growth >= 1);
+    const pool = item === "log" ? c.trees.filter((t) => t.grown) : item === "ore" ? c.rocks.filter((k) => k.ore > 0) : c.plots.filter((q) => q.growth >= 1);
     let best = null;
-    for (const n of pool) if (!best || dist(n, r.player) < dist(best, r.player)) best = n;
+    for (const n of pool) if (!best || dist(n, c.player) < dist(best, c.player)) best = n;
     return best;
   };
+  c.nearestNode = nearestNode;
 
   // Returns [what to do, where to do it]
   function buildHint(key) {
-    const lot = r.buildings[key];
+    const lot = c.buildings[key];
     const name = BUILDINGS[key].name;
     if (lot.vines > 0) return [`Walk to the ${name} lot (arrow) and press Space to clear the vines`, lot];
     const cost = BUILDINGS[key].cost;
     if (canPay(cost)) return [`Build the ${name}: stand on its lot (arrow) and press Space`, lot];
-    const k = Object.keys(cost).find((item) => r.stock[item] + bagCount(item) < cost[item]);
+    const k = Object.keys(cost).find((item) => c.stock[item] + bagCount(item) < cost[item]);
     return [`The ${name} needs ${costText(cost)} (you have ${haveText(cost)}) — ${WHERE[k]}`, nearestNode(k)];
   }
 
+  c.lowest = () => cfg.res.reduce((a, b) => (c.total(b) < c.total(a) ? b : a));
+
   function step() {
-    const raid = r.bandits[0];
-    if (raid) {
-      const fight = r.villagers.some((v) => v.job === "soldier" && !v.wounded)
-        ? "press Shift when one flashes red to block"
-        : "build the Training Grounds and hire Warriors to fight back";
-      return [`⚠ Bandits heading for the ${nameOf(raid.target)}! Soldiers fight them — ${fight}`, raid.target === "hall" ? HALL : r.buildings[raid.target]];
-    }
-    const broken = Object.values(r.buildings).find((b) => b.built && b.damaged);
-    if (broken && !r.working("builder")) return [`The ${nameOf(broken.key)} was raided — stand at it and press Space to repair (2 🪵)`, broken];
-    if (!r.buildings.tavern.built) {
+    if (!built("tavern")) {
       const [t, at] = buildHint("tavern");
       return [`${t} — the Tavern is where you hire workers`, at];
     }
     for (const job of neededJobs()) {
       const key = JOBS[job].building;
-      if (!r.buildings[key].built) {
+      if (!built(key)) {
         const [t, at] = buildHint(key);
         return [`${t} — it's where the ${JOBS[job].name} works`, at];
       }
@@ -733,97 +614,78 @@ function createRound({ level, inputs, humans = [false, false] }) {
     const open = neededJobs().find((j) => villagersIn(j).length === 0);
     if (open) {
       const origin = ORIGINS[JOBS[open].origin].name;
-      return r.visitors.some((v) => v.origin === JOBS[open].origin)
-        ? [`A ${origin} is at the Tavern — stand there and press Space to hire them as your ${JOBS[open].name} (${HIRE_FEE} 🪵)`, r.buildings.tavern]
-        : [`Waiting for a ${origin} to visit the Tavern (only they can be a ${JOBS[open].name}) — chop wood meanwhile`, nearestNode("log")];
+      return c.visitors.some((v) => v.origin === JOBS[open].origin)
+        ? [`A ${origin} is at the Tavern — stand there and press Space to hire them as your ${JOBS[open].name} (${HIRE_FEE} 🪵)`, c.buildings.tavern]
+        : [`Waiting for a ${origin} to visit the Tavern (only they can be a ${JOBS[open].name}) — gather meanwhile`, nearestNode(c.lowest())];
     }
-    const toolless = r.villagers.find((v) => v.blocked && v.blocked.startsWith("no "));
+    const toolless = c.villagers.find((v) => v.blocked && v.blocked.startsWith("no "));
     if (toolless) {
       const tool = toolless.blocked.slice(3);
-      if (r.working("blacksmith")) return [`Your ${JOBS[toolless.job].name} needs a ${tool} — the Blacksmith makes it from 🪨 + 🪵 in the Hall`, HALL];
-      if (r.buildings.smithy.built) return [`Your ${JOBS[toolless.job].name} needs a ${tool} — forge one at the Smithy (1 🪨 + 1 🪵, press Space there)`, r.buildings.smithy];
+      if (c.working("blacksmith")) return [`Your ${JOBS[toolless.job].name} needs a ${tool} — the Blacksmith makes it from ${costText(TOOL_COST)} in the Hall`, HALL];
+      if (built("smithy")) return [`Your ${JOBS[toolless.job].name} needs a ${tool} — forge one at the Smithy (${costText(TOOL_COST)}, press Space there)`, c.buildings.smithy];
       const [t, at] = buildHint("smithy");
       return [`Your ${JOBS[toolless.job].name} needs a ${tool}, made at a Smithy. ${t}`, at];
     }
-    if (cfg.hunger && !r.working("cook") && r.buildings.kitchen.meals === 0 && r.villagers.some((v) => v.hunger >= 60)) {
-      return ["Villagers are hungry — cook at the Kitchen (2 🌾 makes 2 meals)", r.buildings.kitchen];
+    if (cfg.hunger && !c.working("cook") && c.buildings.kitchen.meals === 0 && c.villagers.some((v) => v.hunger >= 60)) {
+      return [`Villagers are hungry — cook at the Kitchen (${costText(MEAL_COST)} makes 2 meals)`, c.buildings.kitchen];
     }
-    const idleJob = neededJobs().find((j) => !r.working(j));
-    if (idleJob) {
-      const v = villagersIn(idleJob)[0];
-      const why = v && (v.wounded ? "is wounded" : v.sick ? "is sick" : cfg.hunger && v.hunger >= 100 ? "is starving — cook!" : "can't work");
-      return [`Your ${JOBS[idleJob].name} ${why || "can't work yet"} — the checklist below shows who's working`, null];
+    const extra = c.openJob();
+    if (extra && c.visitors.some((v) => v.origin === JOBS[extra].origin)) {
+      return [`More workers = faster! Hire another ${JOBS[extra].name} at the Tavern (${HIRE_FEE} 🪵)`, c.buildings.tavern];
     }
-    return ["Everyone's working! Keep it that way for 5 seconds to win", null];
+    const low = c.lowest();
+    return [`Your village is working. Help out: you're lowest on ${ITEM_NAME[low]} ${ITEM_ICON[low]} — ${WHERE[low]}`, nearestNode(low)];
   }
 
-  r.nextStep = () => {
+  c.nextStep = () => {
     const [text, at] = step();
-    r.hintTarget = at || null;
+    c.hintTarget = at || null;
     return text;
-  };
-
-  r.intro = () => {
-    const names = neededJobs().map((j) => JOBS[j].name);
-    const list = names.length > 1 ? `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}` : names[0];
-    const extra = [cfg.hunger && "villagers get hungry", cfg.homes && "they need homes", cfg.sickness && "they can fall sick"].filter(Boolean);
-    return [
-      "Founder wins by getting these jobs working:",
-      list,
-      `all at once for 5 seconds, within ${formatTime(r.time)}.`,
-      extra.length ? `New this level: ${extra.join(", ")}.` : "Build, hire at the Tavern, give them tools.",
-      "Raider wins if the clock runs out first.",
-      r.peace > 0 ? "The first minute is peaceful: no raids, and the clock waits." : null,
-      "Tip: follow the NEXT bar and the 👇 arrow.",
-    ].filter(Boolean);
   };
 
   // ---------- the frame ----------
 
-  r.update = (dt) => {
-    if (r.winner !== null) return r.winner;
-    r.clock += dt;
-    const fin = inputs[0];
-    const rin = inputs[1];
+  c.update = (dt) => {
+    c.clock += dt;
 
     // World regrowth
-    for (const t of r.trees) if (!t.grown && (t.regrow -= dt) <= 0) t.grown = true;
-    for (const k of r.rocks) if (!k.ore && (k.regrow -= dt) <= 0) k.ore = 3;
-    for (const p of r.plots) p.growth = Math.min(1, p.growth + dt / (usable(r.buildings.farm) ? 10 : 16));
+    for (const t of c.trees) if (!t.grown && (t.regrow -= dt) <= 0) t.grown = true;
+    for (const k of c.rocks) if (!k.ore && (k.regrow -= dt) <= 0) k.ore = 3;
+    for (const p of c.plots) p.growth = Math.min(1, p.growth + dt / (built("farm") ? 10 : 16));
 
     // Visitors drift into the Tavern, more often as the colony's reputation grows; unhired ones leave
-    if (usable(r.buildings.tavern)) {
-      r.visitT -= dt;
-      if (r.visitT <= 0 && r.visitors.length < 3) {
+    if (built("tavern")) {
+      c.visitT -= dt;
+      if (c.visitT <= 0 && c.visitors.length < 3) {
         // Your workforce shapes who comes: half the visitors are from the village your open job needs
-        const open = r.openJob();
+        const open = c.openJob();
         const origin = open && chance(0.5) ? JOBS[open].origin : pickOrigin();
-        r.visitors.push({ origin, stay: 22 });
-        r.visitT = Math.max(1.5, 3.5 - r.reputation() * 0.12);
+        c.visitors.push({ origin, stay: 22 });
+        c.visitT = Math.max(1.5, 3.5 - c.reputation() * 0.12);
       }
     }
-    for (const v of r.visitors) v.stay -= dt;
-    r.visitors = r.visitors.filter((v) => v.stay > 0);
+    for (const v of c.visitors) v.stay -= dt;
+    c.visitors = c.visitors.filter((v) => v.stay > 0);
 
-    // The Founder: walk, work the minigame, raise shields
-    const p = r.player;
-    const mx = (fin.held.right ? 1 : 0) - (fin.held.left ? 1 : 0);
-    const my = (fin.held.down ? 1 : 0) - (fin.held.up ? 1 : 0);
+    // The Founder: walk and work the minigame
+    const p = c.player;
+    const mx = (input.held.right ? 1 : 0) - (input.held.left ? 1 : 0);
+    const my = (input.held.down ? 1 : 0) - (input.held.up ? 1 : 0);
     if (mx || my) {
       const len = Math.hypot(mx, my);
       p.x = clamp(p.x + (mx / len) * 150 * dt, 10, W - 10);
       p.y = clamp(p.y + (my / len) * 150 * dt, 30, H - 30);
       if (mx) p.face = mx;
     }
-    if (r.mg) {
-      const mg = r.mg;
-      if (dist(p, mg.target) > BUILDING_REACH + 6) r.mg = null;
+    if (c.mg) {
+      const mg = c.mg;
+      if (dist(p, mg.target) > BUILDING_REACH + 6) c.mg = null;
       else if (mg.cool > 0) mg.cool -= dt;
       else {
         mg.phase += mg.dir * mg.speed * dt;
         if (mg.phase > 1) { mg.phase = 1; mg.dir = -1; }
         if (mg.phase < 0) { mg.phase = 0; mg.dir = 1; }
-        if (fin.pressed.action) {
+        if (input.pressed.action) {
           if (Math.abs(mg.phase - mg.zoneC) <= mg.zoneW / 2) finishMinigame();
           else {
             mg.cool = 0.45;
@@ -831,50 +693,83 @@ function createRound({ level, inputs, humans = [false, false] }) {
           }
         }
       }
-    } else if (fin.pressed.action) {
+    } else if (input.pressed.action) {
       act();
     }
-    r.shieldCd = Math.max(0, r.shieldCd - dt);
-    r.shield = Math.max(0, r.shield - dt);
-    if (fin.pressed.action2 && r.shieldCd === 0) {
-      r.shield = 0.45;
-      r.shieldCd = 1;
+
+    for (const v of c.villagers) runVillager(v, dt);
+    if (c.msg && (c.msg.t -= dt) <= 0) c.msg = null;
+  };
+
+  return c;
+}
+
+// ---------- the round: two colonies racing ----------
+
+function createRound({ level, inputs, humans = [false, false] }) {
+  const cfg = LEVELS[level - 1];
+  const layout = makeLayout();
+  const cols = [0, 1].map((side) => createColony({ level, input: inputs[side], human: humans[side], side, layout }));
+  const nHumans = humans.filter(Boolean).length;
+  // One person: full screen on their colony, zoomed in. Otherwise split screen, one colony a side.
+  const focus = nHumans === 1 ? humans.indexOf(true) : -1;
+  const tags = nHumans === 1 ? cols.map((c) => (c.human ? "YOU" : "RIVAL")) : nHumans === 2 ? ["P1", "P2"] : ["FOUNDER", "RIVAL"];
+  cols.forEach((c, i) => (c.tag = tags[i]));
+
+  const r = {
+    level,
+    cfg,
+    cols,
+    focus,
+    time: TIME_LIMIT,
+    winner: null,
+    endReason: "",
+    timeScale: 0.75, // the whole colony runs at three-quarter speed
+    countdown: 6,
+    view: null,
+  };
+
+  const resList = cfg.res.map((k) => ITEM_ICON[k]).join(" ");
+  const end = (winner, reason) => {
+    r.winner = winner;
+    r.endReason = reason;
+  };
+
+  r.update = (dt) => {
+    if (r.winner !== null) return r.winner;
+    for (const c of cols) c.update(dt);
+    const done = cols.map((c) => c.done());
+    if (done[0] || done[1]) {
+      const w = done[0] && done[1] ? (cols[0].score() >= cols[1].score() ? 0 : 1) : done[0] ? 0 : 1;
+      end(w, `${cols[w].emoji} ${cols[w].tag === "YOU" ? "Your colony" : `The ${cols[w].tag.toLowerCase()} colony`} stockpiled ${GOAL} of ${resList} first!`);
     }
-
-    // The first minute is peaceful: no notoriety, no raids, and the round clock waits
-    if (r.peace > 0) {
-      r.peace = Math.max(0, r.peace - dt);
-      if (r.peace === 0) r.msg = { text: "The peace is over — raiders are coming!", t: 4 };
-    } else {
-      // The Raider: notoriety comes from the colony's own success
-      r.notoriety = Math.min(20, r.notoriety + (r.notoRate + 0.012 * r.reputation()) * dt);
+    r.time -= dt;
+    if (r.winner === null && r.time <= 0) {
+      const w = cols[0].score() >= cols[1].score() ? 0 : 1;
+      end(w, `Time's up — the ${cols[w].tag.toLowerCase()} colony was closer to ${GOAL} of everything.`);
     }
-    r.cursors[1].hidden = r.peace > 0;
-    r.raidCd = Math.max(0, r.raidCd - dt);
-    if (rin.pressed.action) raid("small");
-    if (rin.pressed.action2) raid("big");
-
-    for (const v of r.villagers) runVillager(v, dt);
-    runBandits(dt);
-    for (const s of r.sparks) s.t -= dt;
-    r.sparks = r.sparks.filter((s) => s.t > 0);
-    if (r.msg && (r.msg.t -= dt) <= 0) r.msg = null;
-
-    // The soft win: every required profession working, held long enough to know it runs itself
-    if (r.rolesFilled() === neededJobs().length) {
-      r.softWin += dt;
-      if (r.softWin >= SOFT_WIN_HOLD) end(0, "The village runs without you — that's the soft win!");
-    } else {
-      r.softWin = 0;
-    }
-
-    if (r.peace === 0) r.time -= dt;
-    if (r.winner === null && r.time <= 0) end(1, "The raids kept the colony from standing on its own.");
     return r.winner;
   };
 
+  r.intro = () => {
+    const extra = [
+      level >= 2 && "Couriers and Blacksmiths",
+      cfg.hunger && "crops and hunger",
+      cfg.homes && "homes",
+      cfg.sickness && "sickness",
+    ].filter(Boolean);
+    return [
+      "Race the rival colony!",
+      `First to ${GOAL} of each: ${resList}`,
+      "Gather by hand, then hire workers to gather for you.",
+      "More workers = faster. Everything you spend, you have to earn back.",
+      extra.length ? `This level: ${extra.join(", ")}.` : "Build, hire at the Tavern, give them tools.",
+      "Tip: follow the NEXT bar and the 👇 arrow.",
+    ];
+  };
+
   r.status = () =>
-    `${r.peace > 0 ? `Peaceful ${formatTime(r.peace / 0.75)}` : formatTime(r.time)} · Soft win ${r.rolesFilled()}/${neededJobs().length} · Villagers ${r.villagers.length} · Notoriety ${Math.floor(r.notoriety)}`;
+    cols.map((c) => `${c.tag} ${cfg.res.map((k) => `${ITEM_ICON[k]}${Math.min(GOAL, c.total(k))}`).join(" ")}`).join("  vs  ");
   r.draw = (ctx) => draw(ctx, r);
   return r;
 }
@@ -883,101 +778,77 @@ function costText(cost) {
   return Object.entries(cost).map(([k, n]) => `${n} ${ITEM_ICON[k]}`).join(" + ");
 }
 
-// ---------- Bots ----------
+// ---------- Bot ----------
 
 // The Founder bot walks an ordered list of goals — the same "first provider with an answer
 // wins" shape the Dev Documentation chose for villagers — and plays the minigame by watching
-// the marker, a little late, like a person.
-function founderBot(r, input, skill) {
+// the marker, a little late, like a person. Both colonies use it.
+function founderBot(c, input, skill) {
   const clock = new Clock(lerp(0.5, 0.15, skill));
   const lag = lerp(0.1, 0.03, skill);
   const tolerance = lerp(0.55, 0.8, skill);
-  const BUILD_ORDER = ["tavern", "woodhut", "post", "minehut", "smithy", "farm", "kitchen", "yard", "healer", "barracks"];
+  const BUILD_ORDER = ["tavern", "woodhut", "post", "minehut", "smithy", "farm", "kitchen", "yard", "healer"];
   let goal = null;
   let pressCd = 0;
-  let lastWindup = new Set();
 
   const needed = (key) => {
     if (key === "tavern") return true;
-    if (key === "barracks") return r.level >= 2;
-    if (key === "smithy") return r.cfg.roles.some((j) => JOBS[j].tool); // tools are forged there
-    return r.cfg.roles.some((j) => JOBS[j].building === key);
+    if (key === "smithy") return c.cfg.roles.some((j) => JOBS[j].tool); // tools are forged there
+    return c.cfg.roles.some((j) => JOBS[j].building === key);
   };
   const go = (obj) => ({ x: obj.x, y: obj.y });
-
-  function gather(item) {
-    const p = r.player;
-    const pool = item === "log" ? r.trees.filter((t) => t.grown) : item === "ore" ? r.rocks.filter((k) => k.ore > 0) : r.plots.filter((q) => q.growth >= 1);
-    let best = null;
-    for (const n of pool) if (!best || dist(n, p) < dist(best, p)) best = n;
-    return best ? go(best) : null;
-  }
+  const gather = (item) => {
+    const n = c.nearestNode(item);
+    return n ? go(n) : null;
+  };
 
   function plan() {
-    const p = r.player;
-    const carried = r.bagTotal();
-    const have = (item) => r.stock[item] + r.bagCount(item);
+    const carried = c.bagTotal();
+    const have = (item) => c.stock[item] + c.bagCount(item);
     const toHall = go(HALL);
-    if (carried >= 16 || r.player.slots.every((s) => s && s.n >= SLOT_STACK)) return toHall;
+    if (carried >= 160 || c.player.slots.every((s) => s && s.n >= SLOT_STACK)) return toHall;
 
-    const damaged = Object.values(r.buildings).find((b) => b.built && b.damaged);
-    if (damaged && !r.working("builder")) {
-      if (r.stock.log >= 2) return go(damaged);
-      if (have("log") >= 2) return toHall;
-    }
-
-    const job = r.openJob();
-    if (job && r.usable(r.buildings.tavern) && r.visitors.some((v) => v.origin === JOBS[job].origin)) {
-      if (r.stock.log >= HIRE_FEE) return go(r.buildings.tavern);
+    const job = c.openJob();
+    if (job && c.buildings.tavern.built && c.visitors.some((v) => v.origin === JOBS[job].origin)) {
+      if (c.stock.log >= HIRE_FEE) return go(c.buildings.tavern);
       if (have("log") >= HIRE_FEE) return toHall;
     }
 
-    if (r.toolNeeded() && !r.working("blacksmith") && r.buildings.smithy.built && !r.buildings.smithy.damaged) {
-      if (r.stock.ore >= 1 && r.stock.log >= 1) return go(r.buildings.smithy);
+    if (c.toolNeeded() && !c.working("blacksmith") && c.buildings.smithy.built) {
+      if (c.canAfford(TOOL_COST)) return go(c.buildings.smithy);
     }
-    if (r.cfg.hunger && !r.working("cook") && r.usable(r.buildings.kitchen) && r.buildings.kitchen.meals < 2 && r.stock.crop >= 2) {
-      return go(r.buildings.kitchen);
+    if (c.cfg.hunger && !c.working("cook") && c.buildings.kitchen.built && c.buildings.kitchen.meals < 2 && c.canAfford(MEAL_COST)) {
+      return go(c.buildings.kitchen);
     }
 
-    const next = BUILD_ORDER.find((k) => needed(k) && !r.buildings[k].built);
+    const next = BUILD_ORDER.find((k) => needed(k) && !c.buildings[k].built);
     if (next) {
-      const lot = r.buildings[next];
+      const lot = c.buildings[next];
       const cost = BUILDINGS[next].cost;
       if (lot.vines > 0) return go(lot);
-      if (r.canAfford(cost)) return go(lot);
+      if (c.canAfford(cost)) return go(lot);
       const missing = Object.keys(cost).find((k) => have(k) < cost[k]);
       if (!missing && carried) return toHall;
       if (missing) return gather(missing) || toHall;
     }
 
-    if (!r.working("courier")) {
-      const hut = ["woodhut", "minehut", "farm"].map((k) => r.buildings[k]).find((b) => b.built && b.stock >= 4);
-      if (hut && carried < 10) return go(hut);
+    if (!c.working("courier")) {
+      const hut = ["woodhut", "minehut", "farm"].map((k) => c.buildings[k]).find((b) => b.built && b.stock >= 40);
+      if (hut && carried < 100) return go(hut);
     }
-    if (carried >= 6) return toHall;
+    if (carried >= 60) return toHall;
 
-    // Keep the stockpile topped up for hiring, tools and food
-    const wants = [["log", 14], ["ore", r.buildings.smithy.built ? 6 : 2], ["crop", r.cfg.hunger ? 6 : 0]];
+    // Keep the Hall topped up for hiring, tools and food, then race on the weakest resource
+    const wants = [["log", 80], ["ore", c.buildings.smithy.built ? 40 : 10], ["crop", c.cfg.hunger ? 40 : 0]];
     wants.sort((a, b) => have(a[0]) / Math.max(1, a[1]) - have(b[0]) / Math.max(1, b[1]));
     for (const [item, target] of wants) if (target && have(item) < target) return gather(item) || toHall;
-    return carried ? toHall : { x: HALL.x + 30, y: HALL.y + 40 };
+    return gather(c.lowest()) || toHall;
   }
 
   return {
     update(dt) {
-      if (r.winner !== null) return;
       pressCd -= dt;
-
-      // Shields up when a bandit fighting a soldier winds up
-      for (const b of r.bandits) {
-        if (b.windup > 0 && b.windup < 0.5 && !lastWindup.has(b) && chance(0.35 + 0.6 * skill)) {
-          input.press("action2");
-          lastWindup.add(b);
-        }
-        if (b.windup <= 0) lastWindup.delete(b);
-      }
-
-      const mg = r.mg;
+      const mg = c.mg;
       if (mg) {
         input.held.left = input.held.right = input.held.up = input.held.down = false;
         if (mg.cool <= 0 && pressCd <= 0) {
@@ -991,7 +862,7 @@ function founderBot(r, input, skill) {
       }
 
       if (clock.tick(dt) || !goal) goal = plan();
-      const p = r.player;
+      const p = c.player;
       const dx = goal.x - p.x;
       const dy = goal.y - p.y;
       const close = Math.hypot(dx, dy) < 12;
@@ -1008,54 +879,13 @@ function founderBot(r, input, skill) {
   };
 }
 
-// The Raider bot saves up notoriety and spends it on whatever would set the colony back
-// most right now — a working building the soft win depends on, away from the soldiers.
-function raiderBot(r, input, skill) {
-  const clock = new Clock(lerp(1.6, 0.6, skill));
-  let bigAt = null; // where a big raid is headed once the crosshair glides there
-  return {
-    update(dt) {
-      if (r.winner !== null) return;
-      if (bigAt) {
-        const c = r.cursors[1];
-        if (Math.hypot(c.x - bigAt.x, c.y - bigAt.y) < 3) {
-          input.press("action2");
-          bigAt = null;
-        }
-        return;
-      }
-      if (!clock.tick(dt) || input.pendingFire || r.peace > 0 || r.raidCd > 0) return;
-      const big = r.notoriety >= RAIDS.big.cost && chance(0.3 + 0.5 * skill);
-      if (!big && r.notoriety < RAIDS.small.cost + 3 * skill) return; // a sharper raider saves up a little
-      const soldiers = r.villagers.filter((v) => v.job === "soldier" && !v.wounded);
-      let best = null;
-      const consider = (target, value) => {
-        const guarded = soldiers.filter((s) => dist(s, target) < 140).length;
-        const score = value * skill - guarded * 1.5 * skill + rand(0, 3 * (1 - skill) + 0.5);
-        if (!best || score > best.score) best = { score, x: target.x, y: target.y };
-      };
-      for (const b of Object.values(r.buildings)) {
-        if (!b.built || b.damaged) continue;
-        const job = Object.keys(JOBS).find((j) => JOBS[j].building === b.key);
-        const value = job && r.cfg.roles.includes(job) ? (r.working(job) ? 4 : 2) : b.key === "tavern" ? 2 : 1;
-        consider(b, value);
-      }
-      consider(HALL, (r.stock.log + r.stock.ore + r.stock.crop) / 10);
-      if (!best) return;
-      const noise = (1 - skill) * 30;
-      input.target = { x: best.x + rand(-noise, noise), y: best.y + rand(-noise, noise) };
-      if (big) {
-        bigAt = { x: clamp(input.target.x, 0, W), y: clamp(input.target.y, 0, H) };
-      } else {
-        input.pendingFire = true;
-      }
-    },
-  };
-}
-
 // ---------- Drawing ----------
 
 const EMOJI_FONT = '"Apple Color Emoji","Segoe UI Emoji","Noto Color Emoji",sans-serif';
+const TOP = 46; // race strip + NEXT bar
+const BOT = 26; // bag and tools
+const ZOOM = 1.8; // one person: zoomed in on their colony
+const SPLIT_ZOOM = 1; // split screen: half the canvas each
 
 function emoji(ctx, ch, x, y, size) {
   ctx.font = `${size}px ${EMOJI_FONT}`;
@@ -1080,57 +910,75 @@ function label(ctx, str, x, y) {
   text(ctx, str, x, y, 9, "#2b1d12", "center");
 }
 
-function pill(ctx, str, x, y, color) {
+// A text pill that shrinks to fit inside a view `vw` wide
+function pill(ctx, str, x, y, color, vw) {
   ctx.font = '13px "Special Elite", monospace';
+  const size = Math.max(8, Math.min(13, Math.floor((13 * (vw - 24)) / ctx.measureText(str).width)));
+  ctx.font = `${size}px "Special Elite", monospace`;
   const w = ctx.measureText(str).width + 16;
-  const cx = clamp(x, w / 2 + 4, W - w / 2 - 4);
-  const cy = clamp(y, 60, H - 40);
+  const cx = clamp(x, w / 2 + 4, vw - w / 2 - 4);
+  const cy = clamp(y, TOP + 14, H - BOT - 14);
   ctx.fillStyle = "rgba(28, 17, 10, 0.88)";
   ctx.fillRect(cx - w / 2, cy - 11, w, 22);
-  text(ctx, str, cx, cy, 13, color, "center");
+  text(ctx, str, cx, cy, size, color, "center");
 }
 
-const ZOOM = 1.8;
+function fitText(ctx, str, x, y, max, maxW, color) {
+  ctx.font = `${max}px "Special Elite", monospace`;
+  const size = Math.max(7, Math.min(max, Math.floor((max * maxW) / ctx.measureText(str).width)));
+  text(ctx, str, x, y, size, color);
+}
 
 function draw(ctx, r) {
-  if (r.follow) {
-    // Centre on the Founder, clamped so the camera never shows past the map's edge
-    const vw = W / ZOOM;
-    const vh = (H - 70) / ZOOM; // leave room for the bars at top and bottom
-    r.view = {
-      zoom: ZOOM,
-      x: clamp(r.player.x - vw / 2, 0, W - W / ZOOM),
-      y: clamp(r.player.y - vh / 2 - 44 / ZOOM, -44 / ZOOM, H - H / ZOOM + 26 / ZOOM),
-    };
-  } else {
-    r.view = null;
-  }
   ctx.fillStyle = "#56743a";
   ctx.fillRect(0, 0, W, H);
-  ctx.save();
-  if (r.view) {
-    ctx.scale(r.view.zoom, r.view.zoom);
-    ctx.translate(-r.view.x, -r.view.y);
+  if (r.focus >= 0) {
+    drawColony(ctx, r, r.cols[r.focus], 0, W, ZOOM, true);
+  } else {
+    drawColony(ctx, r, r.cols[0], 0, W / 2, SPLIT_ZOOM, false);
+    drawColony(ctx, r, r.cols[1], W / 2, W / 2, SPLIT_ZOOM, false);
+    ctx.fillStyle = "#2b1d12";
+    ctx.fillRect(W / 2 - 2, 0, 4, H);
   }
-  drawWorld(ctx, r);
-  ctx.restore();
-  drawFounderText(ctx, r);
-  drawHud(ctx, r);
-  if (r.view) drawMinimap(ctx, r);
-  if (r.view && r.founderHuman && r.hintTarget) drawEdgeArrow(ctx, r);
 }
 
-function drawEdgeArrow(ctx, r) {
-  const z = r.view.zoom;
-  const sx = (r.hintTarget.x - r.view.x) * z;
-  const sy = (r.hintTarget.y - r.view.y) * z;
-  const top = 50;
-  const bottom = H - 34;
-  if (sx > 20 && sx < W - 20 && sy > top && sy < bottom) return; // on screen: the 👇 is enough
-  const cx = W / 2;
+// One colony's view: a camera on its Founder, drawn into a slice of the canvas `vw` wide
+function drawColony(ctx, r, c, x0, vw, zoom, full) {
+  const vh = (H - TOP - BOT) / zoom;
+  const ww = vw / zoom;
+  c.view = {
+    zoom,
+    x: clamp(c.player.x - ww / 2, 0, Math.max(0, W - ww)),
+    y: clamp(c.player.y - vh / 2, 0, Math.max(0, H - vh)) - TOP / zoom,
+  };
+  ctx.save();
+  ctx.beginPath();
+  ctx.rect(x0, 0, vw, H);
+  ctx.clip();
+  ctx.translate(x0, 0);
+  ctx.save();
+  ctx.scale(zoom, zoom);
+  ctx.translate(-c.view.x, -c.view.y);
+  drawWorld(ctx, c);
+  ctx.restore();
+  drawFounderText(ctx, c, vw);
+  drawHud(ctx, r, c, vw, full);
+  if (full) drawMinimap(ctx, c, vw);
+  if (c.human && c.hintTarget) drawEdgeArrow(ctx, c, vw);
+  ctx.restore();
+}
+
+function drawEdgeArrow(ctx, c, vw) {
+  const z = c.view.zoom;
+  const sx = (c.hintTarget.x - c.view.x) * z;
+  const sy = (c.hintTarget.y - c.view.y) * z;
+  const top = TOP + 4;
+  const bottom = H - BOT - 8;
+  if (sx > 20 && sx < vw - 20 && sy > top && sy < bottom) return; // on screen: the 👇 is enough
+  const cx = vw / 2;
   const cy = (top + bottom) / 2;
   const a = Math.atan2(sy - cy, sx - cx);
-  const ex = clamp(cx + Math.cos(a) * 1000, 26, W - 26);
+  const ex = clamp(cx + Math.cos(a) * 1000, 26, vw - 26);
   const ey = clamp(cy + Math.sin(a) * 1000, top + 16, bottom - 16);
   ctx.save();
   ctx.translate(ex, ey);
@@ -1149,66 +997,56 @@ function drawEdgeArrow(ctx, r) {
   ctx.restore();
 }
 
-function drawMinimap(ctx, r) {
+function drawZones(ctx) {
+  ctx.fillStyle = "#7f9a52";
+  ctx.fillRect(0, 0, W, H);
+  ctx.fillStyle = "#56743a";
+  ctx.fillRect(0, 0, 4.2 * T, H);
+  ctx.fillStyle = "#8a8070";
+  ctx.fillRect(15 * T, 0, 5 * T, 4.6 * T);
+  ctx.fillStyle = "#9c7a4c";
+  ctx.fillRect(15 * T, 9.4 * T, 5 * T, 4.6 * T);
+}
+
+function drawMinimap(ctx, c, vw) {
   const s = 0.2;
   const mw = W * s;
   const mh = H * s;
-  const x0 = W - mw - 8;
-  const y0 = H - 26 - mh - 8;
+  const x0 = vw - mw - 8;
+  const y0 = H - BOT - mh - 8;
   ctx.save();
   ctx.fillStyle = "rgba(28, 17, 10, 0.85)";
   ctx.fillRect(x0 - 3, y0 - 3, mw + 6, mh + 6);
   ctx.translate(x0, y0);
   ctx.scale(s, s);
-  ctx.fillStyle = "#7f9a52";
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "#56743a";
-  ctx.fillRect(0, 0, 4.2 * T, H);
-  ctx.fillStyle = "#8a8070";
-  ctx.fillRect(15 * T, 0, 5 * T, 4.6 * T);
-  ctx.fillStyle = "#9c7a4c";
-  ctx.fillRect(15 * T, 9.4 * T, 5 * T, 4.6 * T);
-  ctx.fillStyle = "#c2a36b";
-  ctx.fillRect(14.6 * T, 5.6 * T, 5.4 * T, 2.8 * T);
+  drawZones(ctx);
   ctx.fillStyle = "#3d2616";
   ctx.fillRect(HALL.x - 25, HALL.y - 25, 50, 50);
-  for (const b of Object.values(r.buildings)) {
-    ctx.fillStyle = !b.built ? "rgba(60, 90, 40, 0.8)" : b.damaged ? "#e0603a" : "#c79a62";
+  for (const b of Object.values(c.buildings)) {
+    ctx.fillStyle = b.built ? "#c79a62" : "rgba(60, 90, 40, 0.8)";
     ctx.fillRect(b.x - 20, b.y - 18, 40, 36);
   }
   ctx.fillStyle = "#f3e6c9";
-  for (const v of r.villagers) ctx.fillRect(v.x - 8, v.y - 8, 16, 16);
-  ctx.fillStyle = "#ff3a2a";
-  for (const b of r.bandits) ctx.fillRect(b.x - 12, b.y - 12, 24, 24);
+  for (const v of c.villagers) ctx.fillRect(v.x - 8, v.y - 8, 16, 16);
   ctx.fillStyle = "#f3c35a";
   ctx.beginPath();
-  ctx.arc(r.player.x, r.player.y, 22, 0, Math.PI * 2);
+  ctx.arc(c.player.x, c.player.y, 22, 0, Math.PI * 2);
   ctx.fill();
   // Where the camera is looking
   ctx.strokeStyle = "#f3e6c9";
   ctx.lineWidth = 8;
-  ctx.strokeRect(r.view.x, r.view.y, W / r.view.zoom, H / r.view.zoom);
+  ctx.strokeRect(c.view.x, c.view.y + TOP / c.view.zoom, vw / c.view.zoom, (H - TOP - BOT) / c.view.zoom);
   ctx.restore();
 }
 
-function drawWorld(ctx, r) {
-  // Zones: forest, mine, fields, the road the raiders use, and the village between
-  ctx.fillStyle = "#7f9a52";
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "#56743a";
-  ctx.fillRect(0, 0, 4.2 * T, H);
-  ctx.fillStyle = "#8a8070";
-  ctx.fillRect(15 * T, 0, 5 * T, 4.6 * T);
-  ctx.fillStyle = "#9c7a4c";
-  ctx.fillRect(15 * T, 9.4 * T, 5 * T, 4.6 * T);
-  ctx.fillStyle = "#c2a36b";
-  ctx.fillRect(14.6 * T, 5.6 * T, 5.4 * T, 2.8 * T);
+function drawWorld(ctx, c) {
+  // Zones: forest, mine, fields, and the village between
+  drawZones(ctx);
   text(ctx, "FOREST", 0.3 * T, 1.55 * T, 11, "rgba(255,255,255,0.6)");
   text(ctx, "MINE", 15.3 * T, 1.55 * T, 11, "rgba(255,255,255,0.6)");
   text(ctx, "FIELDS", 15.3 * T, 9.85 * T, 11, "rgba(255,255,255,0.6)");
-  text(ctx, "ROAD ▸", 18.2 * T, 5.95 * T, 11, "rgba(60,30,10,0.6)");
 
-  for (let i = 0; i < r.homes - 2; i++) {
+  for (let i = 0; i < c.homes - 2; i++) {
     const s = tilePos(HOME_SPOTS[i]);
     emoji(ctx, "🏠", s.x, s.y, 20);
   }
@@ -1219,7 +1057,7 @@ function drawWorld(ctx, r) {
   emoji(ctx, "🏛️", HALL.x, HALL.y - 2, 38);
   text(ctx, "HALL", HALL.x, HALL.y + 22, 10, "#f3e6c9", "center");
 
-  for (const b of Object.values(r.buildings)) {
+  for (const b of Object.values(c.buildings)) {
     const def = BUILDINGS[b.key];
     if (!b.built) {
       ctx.strokeStyle = "rgba(243, 230, 201, 0.45)";
@@ -1235,14 +1073,13 @@ function drawWorld(ctx, r) {
         label(ctx, def.name, b.x, b.y + 27);
       } else {
         label(ctx, def.name, b.x, b.y + 27);
-        if (r.founderHuman && r.canPay(def.cost)) {
+        if (c.human && c.canPay(def.cost)) {
           // Ready to build: make it obvious
-          ctx.strokeStyle = `rgba(243, 195, 90, ${0.6 + 0.4 * Math.sin(r.clock * 5)})`;
+          ctx.strokeStyle = `rgba(243, 195, 90, ${0.6 + 0.4 * Math.sin(c.clock * 5)})`;
           ctx.lineWidth = 3;
           ctx.strokeRect(b.x - 26, b.y - 22, 52, 44);
         }
         emoji(ctx, def.emoji, b.x, b.y - 4, 16);
-        ctx.globalAlpha = 1;
         text(ctx, costText(def.cost), b.x, b.y + 12, 9, "#2b1d12", "center");
       }
       continue;
@@ -1254,17 +1091,16 @@ function drawWorld(ctx, r) {
     emoji(ctx, def.emoji, b.x, b.y + 2, 22);
     if (def.store && b.stock > 0) text(ctx, `${b.stock}`, b.x + 18, b.y + 14, 10, "#2b1d12", "center");
     if (b.key === "kitchen" && b.meals > 0) text(ctx, `🍲${b.meals}`, b.x + 14, b.y + 14, 10, "#2b1d12", "center");
-    if (b.key === "tavern") r.visitors.forEach((v, i) => {
+    if (b.key === "tavern") c.visitors.forEach((v, i) => {
       ctx.fillStyle = ORIGINS[v.origin].color;
       ctx.beginPath();
       ctx.arc(b.x - 16 + i * 16, b.y + 26, 6, 0, Math.PI * 2);
       ctx.fill();
     });
-    if (b.damaged) emoji(ctx, "🔥", b.x + 12, b.y - 14, 18);
     if (b.key !== "tavern") label(ctx, def.name, b.x, b.y + 27);
   }
 
-  for (const t of r.trees) {
+  for (const t of c.trees) {
     if (t.grown) emoji(ctx, "🌲", t.x, t.y, 28);
     else {
       ctx.fillStyle = "#6b4a2a";
@@ -1273,20 +1109,22 @@ function drawWorld(ctx, r) {
       ctx.fill();
     }
   }
-  for (const k of r.rocks) {
+  for (const k of c.rocks) {
     if (k.ore > 0) emoji(ctx, "🪨", k.x, k.y, 14 + k.ore * 4);
     else {
       ctx.fillStyle = "#6c6458";
       ctx.fillRect(k.x - 5, k.y, 10, 4);
     }
   }
-  for (const q of r.plots) {
-    ctx.fillStyle = "#6e4f2c";
-    ctx.fillRect(q.x - 15, q.y - 12, 30, 24);
-    emoji(ctx, q.growth >= 1 ? "🌾" : "🌱", q.x, q.y, 10 + q.growth * 12);
+  if (c.cfg.res.includes("crop")) {
+    for (const q of c.plots) {
+      ctx.fillStyle = "#6e4f2c";
+      ctx.fillRect(q.x - 15, q.y - 12, 30, 24);
+      emoji(ctx, q.growth >= 1 ? "🌾" : "🌱", q.x, q.y, 10 + q.growth * 12);
+    }
   }
 
-  for (const v of r.villagers) {
+  for (const v of c.villagers) {
     ctx.fillStyle = ORIGINS[v.origin].color;
     ctx.beginPath();
     ctx.arc(v.x, v.y, 9, 0, Math.PI * 2);
@@ -1294,47 +1132,28 @@ function drawWorld(ctx, r) {
     ctx.strokeStyle = "#2b1d12";
     ctx.lineWidth = 1.5;
     ctx.stroke();
-    if (v.job === "soldier" && r.shield > 0) {
-      ctx.strokeStyle = "#7fb6e6";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(v.x, v.y, 13, 0, Math.PI * 2);
-      ctx.stroke();
-    }
     emoji(ctx, JOBS[v.job].emoji, v.x, v.y, 11);
-    const tag = v.wounded ? "🤕" : v.sick ? "🤢" : v.blocked ? "❗" : r.cfg.hunger && v.hunger >= 60 ? "🍗" : v.carry ? ITEM_ICON[v.carry] : null;
+    const tag = v.sick ? "🤢" : v.blocked ? "❗" : c.cfg.hunger && v.hunger >= 60 ? "🍗" : v.carry ? ITEM_ICON[v.carry] : null;
     if (tag) emoji(ctx, tag, v.x + 10, v.y - 11, 11);
   }
 
-  for (const b of r.bandits) {
-    emoji(ctx, "🦹", b.x, b.y, 22);
-    if (b.windup > 0) {
-      ctx.strokeStyle = "#ff5a3a";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.arc(b.x, b.y, 15, 0, Math.PI * 2);
-      ctx.stroke();
-    }
-  }
-  for (const s of r.sparks) emoji(ctx, s.text, s.x, s.y - (0.8 - s.t) * 20, 20);
-
   // Where the NEXT bar is pointing
-  if (r.founderHuman && r.hintTarget) {
-    const bob = Math.sin(r.clock * 6) * 4;
-    emoji(ctx, "👇", r.hintTarget.x, r.hintTarget.y - 34 + bob, 22);
+  if (c.human && c.hintTarget) {
+    const bob = Math.sin(c.clock * 6) * 4;
+    emoji(ctx, "👇", c.hintTarget.x, c.hintTarget.y - 34 + bob, 22);
   }
 
   // The Founder
-  const p = r.player;
+  const p = c.player;
   ctx.fillStyle = "rgba(201, 164, 92, 0.5)";
   ctx.beginPath();
   ctx.ellipse(p.x, p.y + 12, 13, 5, 0, 0, Math.PI * 2);
   ctx.fill();
-  emoji(ctx, "🧑‍🌾", p.x, p.y, 26);
+  emoji(ctx, c.emoji, p.x, p.y, 26);
 
   // The minigame bar: stop the marker inside the green
-  if (r.mg) {
-    const mg = r.mg;
+  if (c.mg) {
+    const mg = c.mg;
     const bx = clamp(p.x - 50, 4, W - 104);
     const by = p.y - 40;
     ctx.fillStyle = "rgba(28, 17, 10, 0.85)";
@@ -1349,90 +1168,91 @@ function drawWorld(ctx, r) {
 }
 
 // The prompt and messages around the Founder stay at normal size even when the camera zooms
-function drawFounderText(ctx, r) {
-  const p = r.player;
-  const z = r.view ? r.view.zoom : 1;
-  const sx = r.view ? (p.x - r.view.x) * z : p.x;
-  const sy = r.view ? (p.y - r.view.y) * z : p.y;
-  const prompt = r.mg ? "Press Space when the marker is in the green" : r.promptFor(r.targetAt(p));
-  if (prompt) pill(ctx, prompt, sx, sy - (r.mg ? 58 : 32) * z, "#f3c35a");
-  if (r.msg) pill(ctx, r.msg.text, sx, sy + 26 * z, "#f3e6c9");
+function drawFounderText(ctx, c, vw) {
+  if (!c.human) return;
+  const p = c.player;
+  const z = c.view.zoom;
+  const sx = (p.x - c.view.x) * z;
+  const sy = (p.y - c.view.y) * z;
+  const prompt = c.mg ? "Press Space when the marker is in the green" : c.promptFor(c.targetAt(p));
+  if (prompt) pill(ctx, prompt, sx, sy - (c.mg ? 58 : 32) * z, "#f3c35a", vw);
+  if (c.msg) pill(ctx, c.msg.text, sx, sy + 26 * z, "#f3e6c9", vw);
 }
 
-function drawHud(ctx, r) {
-  // "Next step" bar: what to do now, worked out from the colony's actual state
-  const hint = r.nextStep();
-  ctx.fillStyle = hint.startsWith("⚠") ? "rgba(140, 40, 24, 0.88)" : "rgba(243, 230, 201, 0.9)";
-  ctx.fillRect(0, 24, W, 22);
-  const line = (hint.startsWith("⚠") ? "" : "NEXT: ") + hint;
-  ctx.font = '13px "Special Elite", monospace';
-  const fit = Math.max(8, Math.min(13, Math.floor((13 * (W - 16)) / ctx.measureText(line).width)));
-  text(ctx, line, 8, 35, fit, hint.startsWith("⚠") ? "#f3e6c9" : "#2b1d12");
+// The race: a bar per resource toward the goal
+function drawRace(ctx, c, x, w, highlight) {
+  const res = c.cfg.res;
+  text(ctx, c.tag, x, 12, 10, highlight ? "#f3c35a" : "#f08a6e");
+  const x1 = x + 48;
+  const seg = (w - 48) / res.length;
+  res.forEach((item, i) => {
+    const sx = x1 + i * seg;
+    const n = Math.min(GOAL, c.total(item));
+    emoji(ctx, ITEM_ICON[item], sx + 7, 12, 12);
+    const bx = sx + 16;
+    const bw = seg - 22;
+    ctx.fillStyle = "#3a2418";
+    ctx.fillRect(bx, 5, bw, 14);
+    ctx.fillStyle = n >= GOAL ? "#8fc25a" : "#5f8a3c";
+    ctx.fillRect(bx, 5, (bw * n) / GOAL, 14);
+    text(ctx, `${n}`, bx + bw / 2, 12, 9, "#f3e6c9", "center");
+  });
+}
 
-  // Top strip: the Hall's stockpile, tools, your bag, and the Raider's notoriety
-  ctx.fillStyle = "rgba(28, 17, 10, 0.78)";
-  ctx.fillRect(0, 0, W, 24);
-  let x = 8;
-  for (const item of ["log", "ore", "crop"]) {
-    emoji(ctx, ITEM_ICON[item], x + 7, 12, 13);
-    text(ctx, String(r.stock[item]), x + 17, 12, 12, "#f3e6c9");
-    x += 46;
+function drawHud(ctx, r, c, vw, full) {
+  // Top strip: the race to the goal (yours, and in full screen the rival's too)
+  ctx.fillStyle = "rgba(28, 17, 10, 0.85)";
+  ctx.fillRect(0, 0, vw, 24);
+  if (full) {
+    drawRace(ctx, c, 6, vw / 2 - 12, true);
+    drawRace(ctx, r.cols[1 - c.side], vw / 2 + 6, vw / 2 - 12, false);
+  } else {
+    drawRace(ctx, c, 6, vw - 12, c.human);
   }
-  x += 6;
-  for (const tool of Object.keys(TOOL_ICON)) {
-    emoji(ctx, TOOL_ICON[tool], x + 7, 12, 12);
-    text(ctx, String(r.stock[tool]), x + 16, 12, 11, "#d4bd8f");
-    x += 36;
-  }
-  x += 8;
-  text(ctx, "BAG", x, 12, 10, "#d4bd8f");
-  x += 30;
-  r.player.slots.forEach((s, i) => {
+
+  // "Next step" bar: what to do now, worked out from the colony's actual state
+  const hint = c.nextStep();
+  ctx.fillStyle = "rgba(243, 230, 201, 0.9)";
+  ctx.fillRect(0, 24, vw, 22);
+  fitText(ctx, `NEXT: ${hint}`, 6, 35, 13, vw - 12, "#2b1d12");
+
+  // Bottom strip: your bag, spare tools, and who's working
+  ctx.fillStyle = "rgba(28, 17, 10, 0.85)";
+  ctx.fillRect(0, H - BOT, vw, BOT);
+  const y = H - 13;
+  let x = 6;
+  text(ctx, "BAG", x, y, 10, "#d4bd8f");
+  x += 28;
+  c.player.slots.forEach((s, i) => {
     ctx.strokeStyle = "#d4bd8f";
     ctx.lineWidth = 1;
-    ctx.strokeRect(x + i * 34, 3, 30, 18);
+    ctx.strokeRect(x + i * 40, y - 9, 36, 18);
     if (s) {
-      emoji(ctx, ITEM_ICON[s.item], x + i * 34 + 9, 12, 11);
-      text(ctx, String(s.n), x + i * 34 + 17, 12, 10, "#f3e6c9");
+      emoji(ctx, ITEM_ICON[s.item], x + i * 40 + 8, y, 10);
+      text(ctx, String(s.n), x + i * 40 + 16, y, 9, "#f3e6c9");
     }
   });
-  const nx = W - 128;
-  if (r.peace > 0) {
-    // The peaceful first minute, counted in real seconds since the colony runs slowed down
-    text(ctx, `PEACEFUL ${Math.ceil(r.peace / 0.75)}s`, nx - 4, 12, 10, "#c9e08a", "right");
-    ctx.fillStyle = "#3a2418";
-    ctx.fillRect(nx, 6, 120, 12);
-    ctx.fillStyle = "#5f8a3c";
-    ctx.fillRect(nx, 6, (120 * r.peace) / PEACE, 12);
-  } else {
-    drawNotoriety(ctx, r, nx);
+  x += 166;
+  const tools = [...new Set(c.cfg.roles.map((j) => JOBS[j].tool).filter(Boolean))];
+  for (const tool of tools) {
+    emoji(ctx, TOOL_ICON[tool], x + 7, y, 11);
+    text(ctx, String(c.stock[tool]), x + 16, y, 10, "#d4bd8f");
+    x += 32;
   }
-
-  // Bottom strip: what the Founder needs to win, by name
-  ctx.fillStyle = "rgba(28, 17, 10, 0.85)";
-  ctx.fillRect(0, H - 26, W, 26);
-  const roles = r.cfg.roles;
-  const all = r.rolesFilled() === roles.length;
-  text(ctx, all ? `HOLD ${Math.max(0, SOFT_WIN_HOLD - r.softWin).toFixed(1)}s` : "TO WIN:", 8, H - 13, 11, all ? "#c9e08a" : "#f3c35a");
-  const bw = Math.min(84, (W - 90) / roles.length);
-  roles.forEach((job, i) => {
-    const ok = r.working(job);
-    const cx = 74 + i * bw;
-    ctx.fillStyle = ok ? "#5f8a3c" : "rgba(184, 68, 46, 0.75)";
-    ctx.fillRect(cx, H - 23, bw - 4, 20);
-    emoji(ctx, JOBS[job].emoji, cx + 9, H - 13, 11);
-    text(ctx, (ok ? "✓ " : "✗ ") + JOBS[job].name, cx + 18, H - 13, bw > 76 ? 10 : 8, "#f3e6c9");
-  });
-}
-
-function drawNotoriety(ctx, r, nx) {
-  text(ctx, r.raidCd > 0 ? `RAIDS IN ${Math.ceil(r.raidCd)}s` : "NOTORIETY", nx - 4, 12, 10, "#f08a6e", "right");
-  ctx.fillStyle = "#3a2418";
-  ctx.fillRect(nx, 6, 120, 12);
-  ctx.fillStyle = "#d0692f";
-  ctx.fillRect(nx, 6, (120 * r.notoriety) / 20, 12);
-  ctx.fillStyle = "#f3e6c9";
-  for (const spec of Object.values(RAIDS)) ctx.fillRect(nx + (120 * spec.cost) / 20, 4, 2, 16);
+  if (full) {
+    x += 10;
+    text(ctx, "WORKING", x, y, 10, "#d4bd8f");
+    x += 58;
+    for (const job of c.cfg.roles) {
+      const n = c.workingCount(job);
+      const hired = c.villagersIn(job).length;
+      ctx.globalAlpha = hired ? 1 : 0.35;
+      emoji(ctx, JOBS[job].emoji, x + 7, y, 12);
+      text(ctx, hired ? `${n}` : "–", x + 16, y, 10, n < hired ? "#f08a6e" : "#f3e6c9");
+      ctx.globalAlpha = 1;
+      x += 30;
+    }
+  }
 }
 
 export default {
@@ -1440,37 +1260,36 @@ export default {
   title: "Life in the Colony",
   kicker: "Gather + build",
   accent: "var(--brass)",
-  blurb: "Build a village that runs without you — while raiders take notice.",
+  blurb: "Two rival colonies race to stockpile 1000 of everything.",
   howTo: [
-    "When a person plays the Founder, the first minute is peaceful: no raids, and the round clock waits until it's over. Use it to learn.",
-    "Founder: walk with the arrow keys and press Space at whatever you're standing next to — the yellow prompt above you says what Space will do.",
-    "Gathering is a minigame: press Space again when the marker is in the green. Each success gives 2.",
-    "To build: walk to a lot (the labelled squares), press Space to clear the vines, then press Space again to build. It pays from your bag, then from the Hall's stockpile. A lot glows yellow when you can afford it.",
-    "Follow the 👇 arrow — it points at whatever the NEXT bar at the top is asking for. Hire visitors at the Tavern; each job needs someone from the right village.",
-    "You win when every profession on the checklist at the bottom is green for 5 seconds. The bar at the top always says what to do next.",
-    "Raider: click a building to send bandits (right-click for a big raid). Raids start after the peaceful minute (25 seconds if the computer is the Founder) and get cheaper the bigger the colony grows.",
+    "Two colonies race on identical land. The first to stockpile 1000 of each resource (shown at the top) wins the round.",
+    "Walk with the arrow keys and press Space at whatever you're standing next to. The yellow prompt above you says what Space will do.",
+    "Gathering is a minigame: press Space again when the marker is in the green. Each success gives 20.",
+    "To build: walk to a lot (the labelled squares), press Space to clear the vines, then Space again to build. It pays from your bag, then from the Hall. A lot glows yellow when you can afford it.",
+    "Hire visitors at the Tavern. Each job needs someone from the right village, and gatherers need a tool from the Smithy. You can hire up to 3 of each gatherer.",
+    "Workers' piles in their huts count toward your total. Everything you spend on buildings, tools and hiring has to be earned back, so grow the village, then let it out-gather you.",
+    "Follow the 👇 arrow: it points at whatever the NEXT bar at the top is asking for.",
   ],
   width: W,
   height: H,
   sides: [
     {
       name: "Founder",
-      emoji: "🧑‍🌾",
-      goal: "Reach the soft win: every profession on the checklist working on its own. Gather (stop the marker in the green), build, hire at the Tavern, forge tools and cook until villagers take over.",
-      controls: { dirs: "walk", action: "work / build / hire — whatever you're standing at", action2: "shields up (your soldiers block)" },
+      emoji: SIDE_EMOJI[0],
+      goal: "Grow your colony and be first to stockpile 1000 of each resource. Gather, build, hire at the Tavern, forge tools and let your workers out-gather the rival.",
+      controls: { dirs: "walk", action: "work / build / hire — whatever you're standing at" },
       pointer: null,
-      pad: { dirs: "four", action: "Act", action2: "Shield" },
-      bot: founderBot,
+      pad: { dirs: "four", action: "Act" },
+      bot: (r, input, skill) => founderBot(r.cols[0], input, skill),
     },
     {
-      name: "Raider",
-      emoji: "🦹",
-      goal: "Keep the colony from standing on its own until time runs out. Prosperity earns you notoriety — spend it on raids that wreck buildings and wound villagers.",
-      controls: { dirs: "move the crosshair", action: `small raid (${RAIDS.small.cost} notoriety)`, action2: `big raid (${RAIDS.big.cost} notoriety)` },
-      pointer: "aim",
-      pointerHint: "Click a building to raid it · right-click for a big raid",
-      pad: { dirs: "four", action: "Raid", action2: "Big raid" },
-      bot: raiderBot,
+      name: "Rival",
+      emoji: SIDE_EMOJI[1],
+      goal: "Grow the rival colony and be first to stockpile 1000 of each resource. Same land, same rules — just faster.",
+      controls: { dirs: "walk", action: "work / build / hire — whatever you're standing at" },
+      pointer: null,
+      pad: { dirs: "four", action: "Act" },
+      bot: (r, input, skill) => founderBot(r.cols[1], input, skill),
     },
   ],
   createRound,

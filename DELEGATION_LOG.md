@@ -243,3 +243,24 @@ A record of what I asked Claude (Claude Code, desktop app) to do, what it produc
 - **Balance:** the fairness run is unchanged for computer vs computer (Founder 46–52% at every level).
 - **Timing:** a scripted human-Founder round with a sharp Raider showed the clock and notoriety frozen for 60 real seconds, the crosshair hidden, and the first raid at about 70 seconds.
 - *Not yet:* the user's playtest.
+
+## 13. Colony redesign: rival colonies, first to 1000 — 2026-10-07
+
+**Asked:** "I like the game but don't like the raids. I don't understand the point of the game, and when it gets satisfying the round ends. Explain how the game works." I explained the loop and proposed options. The user chose: "rival colony, first to 1000 of each resource."
+
+**Produced:**
+- **Raider removed:** raids, bandits, soldiers, the Training Grounds, shields, notoriety and the peaceful minute are all gone.
+- **The new game:** two colonies race on identical land (the same trees, rocks and fields). The first to own 1000 of each resource in play wins: wood and stone on levels 1–2, plus crops from level 3. Everything owned counts: the Hall, the huts' piles and the bag.
+- **Growth is the satisfying part:** after every required job is filled, the Tavern keeps offering extra gatherers (up to 3 lumberjacks, miners and farmers). Workers bring back 40 a trip against 20 per gather by hand, so the village out-gathers you. Every log spent on buildings, tools and hiring has to be earned back.
+- **Numbers rescaled ×10** to fit a 1000 goal (for example, the Tavern costs 40 🪵, a tool 10 🪨 + 10 🪵 and hiring 30 🪵).
+- **Screens:**
+  - One player: full-screen zoomed view of their colony. The top strip shows YOU and RIVAL progress bars for each resource. The bottom strip shows the bag, spare tools and a WORKING count per job.
+  - Two players, or the computer vs itself: split screen, one colony per half.
+- **Hints:** the NEXT hints were rewritten for the race. Once the village is running, they say to hire more gatherers, or which resource you're lowest on and where to get it.
+- Both sides use the same bot, and there is a 10-minute safety clock (the colony closer to the goal wins).
+
+**Verified:**
+- **Balance:** the fairness run gives the Founder 45–52% at every level. A symmetric race should land near 50/50, and it does.
+- **Pacing:** the first version took about 4.5 minutes at level 1, so worker trips were raised from 20 to 40, bringing it to about 3 minutes (5.5 at level 5). A trace of one colony shows roughly 90 seconds of setup, then about 15 resources a second once 6 workers are in.
+- **In the browser:** both the one-player view and the split screen were drawn from a mid-round state and checked by screenshot. There were no console errors.
+- *Not yet:* the user's playtest. The split-screen NEXT text is small at half width.
