@@ -90,7 +90,15 @@ function renderSoloSetup(game) {
       )
     ),
     el("a", { class: "deal-btn", href: `#/${game.id}/play` }, "Deal 'em in"),
-    levels > 1 ? el("p", { class: "setup-note" }, "Start at ", pick, " (for testing later levels)") : null
+    levels > 1 ? el("p", { class: "setup-note" }, "Start at ", pick, " (for testing later levels)") : null,
+    game.cheats
+      ? el(
+          "details",
+          { class: "cheats" },
+          el("summary", {}, "Cheat codes (type one while playing)"),
+          el("ul", {}, ...Object.entries(game.cheats).map(([code, c]) => el("li", {}, el("code", {}, code), ` — ${c.does}`)))
+        )
+      : null
   );
 }
 

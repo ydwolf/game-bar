@@ -363,7 +363,7 @@ function createColony(input) {
       payBoth(def.cost);
       obj.built = true;
       sfx("place");
-      return say(`Built the ${def.name}`);
+      return say(`Built the ${def.name} (paid from your bag, then the Hall)`);
     }
     if (kind === "field") {
       if (!canPay(FIELD_COST)) return fail(`A new field needs ${costText(FIELD_COST)}`);
@@ -894,8 +894,77 @@ function createColony(input) {
     for (const k of c.rocks) k.left = 3;
   };
 
+  // ---------- cheat codes (testing aids — see CHEATS below) ----------
+
+  function addWorker(job) {
+    const tool = JOBS[job].tool;
+    c.villagers.push({
+      id: c.nextId++, job, x: HALL.x + rand(-40, 40), y: HALL.y + rand(34, 60),
+      task: [], tool: tool ? { type: tool, dur: TOOL_DURABILITY } : null, carry: null, hunger: 0, fed: 0, sick: false, recover: 0, blocked: null, walk: 0,
+    });
+  }
+
+  c.cheat = (code) => {
+    switch (code) {
+      case "WOOD": c.stock.log += 50; return "+50 wood in the Hall";
+      case "STONE": c.stock.stone += 30; return "+30 stone in the Hall";
+      case "FOOD": c.stock.food += 50; return "+50 food in the Hall";
+      case "RICH":
+        c.stock.log += 100;
+        c.stock.stone += 60;
+        c.stock.food += 100;
+        return "+100 wood, +60 stone, +100 food";
+      case "BUILD":
+        for (const b of Object.values(c.buildings)) if (unlocked(b.key)) { b.vines = false; b.built = true; }
+        c.houses.forEach((h, i) => { if (i < c.housePlots()) { h.built = true; h.damaged = false; } });
+        return "Every building and house for this year is up";
+      case "CREW": {
+        let n = 0;
+        while (c.villagers.length < c.cfg.pop) {
+          const job = c.openJob() || "lumberjack";
+          if (!built(JOBS[job].building)) { c.buildings[JOBS[job].building].built = true; c.buildings[JOBS[job].building].vines = false; }
+          addWorker(job);
+          n++;
+        }
+        for (const job of c.cfg.jobs) if (!villagersIn(job).length) { c.buildings[JOBS[job].building].built = true; c.buildings[JOBS[job].building].vines = false; addWorker(job); n++; }
+        return `Hired ${n} workers, tools included`;
+      }
+      case "TOOLS":
+        for (const v of c.villagers) if (JOBS[v.job].tool) v.tool = { type: JOBS[v.job].tool, dur: TOOL_DURABILITY };
+        for (const t of ["axe", "pickaxe", "hoe", "hammer"]) c.stock[t] += 3;
+        return "Fresh tools for everyone, +3 spares of each";
+      case "HEAL":
+        for (const v of c.villagers) { v.sick = false; v.hunger = 0; v.fed = FED_TIME; }
+        return "Everyone healed and well fed";
+      case "SNOW": c.clock = Math.max(c.clock, (DAYS - 0.5) * DAY); return "Half a day until the snow";
+      case "NEXT": c.over = "ready"; return "Skipping to next year";
+      case "READY":
+        c.cheat("CREW");
+        c.cheat("BUILD");
+        c.stock.log += c.needs().wood[1];
+        c.stock.food += c.needs().food[1];
+        return "Ready for winter — press Space at the Hall";
+    }
+    return null;
+  };
+
   return c;
 }
+
+// Cheat codes: type the word while playing (shown on the setup screen)
+const CHEATS = {
+  WOOD: "+50 wood",
+  STONE: "+30 stone",
+  FOOD: "+50 food",
+  RICH: "lots of everything",
+  BUILD: "build every building and house for this year",
+  CREW: "hire workers up to this year's goal, with tools",
+  TOOLS: "fresh tools for everyone",
+  HEAL: "cure and feed everyone",
+  SNOW: "jump to the last half-day",
+  NEXT: "win this year and go to the next",
+  READY: "everything winter needs, at once",
+};
 
 // Winter eats food (meals first) and burns firewood
 function winter(c) {
@@ -1542,38 +1611,41 @@ function drawHud(ctx, c) {
   ctx.fillStyle = SHADE;
   ctx.fillRect(0, H - BOT, W, BOT);
   const y = H - BOT / 2;
-  x = 8;
-  text(ctx, "BAG", x, y, 10, "#d4bd8f");
-  x += 30;
+  x = 6;
+  text(ctx, "BAG", x, y, 9, "#d4bd8f");
+  x += 24;
   c.player.slots.forEach((s, i) => {
     ctx.strokeStyle = "#d4bd8f";
     ctx.lineWidth = 1;
-    ctx.strokeRect(x + i * 40 + 0.5, y - 9.5, 36, 19);
+    ctx.strokeRect(x + i * 34 + 0.5, y - 9.5, 31, 19);
     if (s) {
-      icon(ctx, s.item, x + i * 40 + 9, y, 12);
-      text(ctx, String(s.n), x + i * 40 + 18, y, 10, CREAM);
+      icon(ctx, s.item, x + i * 34 + 8, y, 11);
+      text(ctx, String(s.n), x + i * 34 + 15, y, 9, CREAM);
     }
   });
-  x += 172;
-  text(ctx, "TOOLS", x, y, 10, "#d4bd8f");
-  x += 44;
+  x += 142;
+  // The Hall's stockpile: what building and hiring pay from after your bag, plus spare tools
+  text(ctx, "HALL", x, y, 9, "#d4bd8f");
+  x += 30;
+  const items = c.cfg.hunger ? ["log", "stone", "food", "meal"] : ["log", "stone", "food"];
   const tools = [...new Set(c.cfg.jobs.map((j) => JOBS[j].tool).filter(Boolean))];
-  for (const tool of tools) {
-    icon(ctx, tool, x + 7, y, 12);
-    text(ctx, String(c.stock[tool]), x + 16, y, 10, CREAM);
-    x += 32;
+  for (const item of [...items, ...tools]) {
+    const n = item === "meal" ? c.buildings.kitchen.stock : c.stock[item];
+    icon(ctx, item, x + 6, y, 11);
+    text(ctx, String(n), x + 13, y, 9, CREAM);
+    x += n >= 100 ? 36 : n >= 10 ? 31 : 26;
   }
-  x += 10;
-  text(ctx, "WORKERS", x, y, 10, "#d4bd8f");
-  x += 60;
+  x += 6;
+  text(ctx, "WORK", x, y, 9, "#d4bd8f");
+  x += 32;
   for (const job of c.cfg.jobs) {
     const hired = c.villagersIn(job).length;
     const n = c.workingCount(job);
     ctx.globalAlpha = hired ? 1 : 0.35;
-    personIcon(ctx, x + 6, y, 13, JOBS[job].shirt);
-    text(ctx, hired ? String(n) : "-", x + 15, y, 10, n < hired ? "#f08a6e" : CREAM);
+    personIcon(ctx, x + 5, y, 12, JOBS[job].shirt);
+    text(ctx, hired ? String(n) : "-", x + 12, y, 9, n < hired ? "#f08a6e" : CREAM);
     ctx.globalAlpha = 1;
-    x += 28;
+    x += 21;
   }
 }
 
@@ -1584,7 +1656,9 @@ export default {
   accent: "var(--brass)",
   blurb: "Grow a frontier village and get everyone housed, fed and warm before the first snow.",
   solo: true,
-  levelSelect: 6,
+  hiRes: true,
+  levelSelect: 10,
+  cheats: Object.fromEntries(Object.entries(CHEATS).map(([code, does]) => [code, { does, run: (r) => r.colony.cheat(code) }])),
   levelName: (n) => `Year ${n}`,
   scoreText: (n) => `Winters survived: ${n}`,
   howTo: [

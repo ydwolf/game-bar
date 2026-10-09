@@ -369,3 +369,24 @@ The user said: "keep it single player and make it better… look at the rest of 
   - Bigger harvests made the late game too easy, so the harsher-winter ramp went back to +2 per person per year after year 4.
 - In the browser I drew year 4 after a real year 3. Fields to plant, the "well fed" stars, the store message, and the Builder having repaired both caved-in roofs all appear.
 - The browser had cached the old art file, which caused a missing-sprite error. Reloading fixed it, but the user should hard-refresh.
+
+## 17. Colony: sharper picture, cheat codes, and the "free stone" mystery — 2026-10-09
+
+**Asked:** "Can you make it a little higher resolution? It seems very pixely." "Are there any cheats, the way the professor explained cheat codes?" "I don't have any stone in my inventory and the building costs stone, but I can still build it."
+
+**Produced:**
+- **The stone wasn't free.** Building pays from your bag first, then from the Hall's stockpile, and the Hall starts with 2 stone. Nothing on screen showed the Hall's stock, though. The bottom bar now has a HALL readout (wood, stone, food, meals from year 4, and spare tools), and the build message says "paid from your bag, then the Hall".
+- **Higher resolution.** A game can now set `hiRes` and the cabinet draws it at 2–3× (from the screen's pixel density) while the game still thinks in 720×504. Text, outlines and the HUD are crisp; the sprites stay deliberately blocky pixel art. The cabinet's countdown card, cursors and pointer mapping now use the game's logical size, so other games are unaffected.
+- **Cheat codes** (a testing aid the rubric suggests). Type one while playing and a purple banner confirms it:
+  - Resources: WOOD, STONE, FOOD, RICH.
+  - Shortcuts: BUILD (every building and house for the year), CREW (hire up to the year's goal, with tools), TOOLS, HEAL.
+  - Time: SNOW (jump to the last half-day), NEXT (win the year).
+  - All at once: READY.
+  - The list is on the setup screen, under "Cheat codes".
+  - It was going to be SKIP, but P is the pause key, so it's NEXT.
+- The level select now goes up to Year 10.
+
+**Verified:**
+- Every cheat was run in Node against a real round.
+- The tuning script and all six fairness runs still pass.
+- In the browser, the cheat list shows on the setup screen and a year-4 frame drawn at 3× has crisp text.

@@ -64,6 +64,9 @@ export function createCabinet({ onSwap }) {
   let pointerSide = -1;
   let statusText = "";
   let firstRound = 1;
+  let res = 1; // canvas pixels per game unit
+  let cheatKeys = ""; // the last few letters typed, for games with cheat codes
+  let cheatFlash = null;
   const keyMap = new Map();
 
   // ---------- Match flow ----------
@@ -73,8 +76,10 @@ export function createCabinet({ onSwap }) {
     game = g;
     humans = game.solo ? [true, false] : h.slice();
     firstRound = startRound;
-    canvas.width = game.width;
-    canvas.height = game.height;
+    // A game can ask to be drawn at a higher resolution than its logical size, for crisp text
+    res = game.hiRes ? Math.min(3, Math.ceil(window.devicePixelRatio || 1) + 1) : 1;
+    canvas.width = game.width * res;
+    canvas.height = game.height * res;
     screen.style.setProperty("--w", `${game.width}px`);
     screen.style.setProperty("--aspect", String(game.width / game.height));
     table.style.setProperty("--accent", game.accent);
@@ -253,6 +258,7 @@ export function createCabinet({ onSwap }) {
       e.preventDefault();
       return;
     }
+    checkCheat(e);
     const binds = keyMap.get(e.code);
     if (!binds || paused || phase === "over" || !set) return; // let overlay buttons get Enter/Space
     e.preventDefault();
@@ -268,7 +274,7 @@ export function createCabinet({ onSwap }) {
 
   function canvasPoint(e) {
     const r = canvas.getBoundingClientRect();
-    return { x: ((e.clientX - r.left) * canvas.width) / r.width, y: ((e.clientY - r.top) * canvas.height) / r.height };
+    return { x: ((e.clientX - r.left) * game.width) / r.width, y: ((e.clientY - r.top) * game.height) / r.height };
   }
 
   let swipe = null;
@@ -467,7 +473,11 @@ export function createCabinet({ onSwap }) {
   function render() {
     if (!set) return;
     const r = set.round;
+    const gw = game.width;
+    const gh = game.height;
+    ctx.setTransform(res, 0, 0, res, 0, 0);
     r.draw(ctx);
+    if (cheatFlash) drawCheatFlash(gw, gh);
     if (r.cursors) {
       ctx.save();
       if (r.view) {
@@ -481,37 +491,37 @@ export function createCabinet({ onSwap }) {
 
     if (phase === "countdown") {
       ctx.fillStyle = "rgba(28, 17, 10, 0.55)";
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.fillRect(0, 0, gw, gh);
       ctx.fillStyle = "#f3e6c9";
       ctx.textAlign = "center";
       ctx.textBaseline = "middle";
-      const size = Math.round(canvas.width / 16);
+      const size = Math.round(gw / 16);
       if (r.intro) {
         // A game can explain its goal while the countdown runs
         const lines = r.intro();
         const lh = Math.round(size * 0.62);
         const boxH = lines.length * lh + size * 1.6;
-        const top = canvas.height / 2 - boxH / 2 - size * 0.6;
+        const top = gh / 2 - boxH / 2 - size * 0.6;
         ctx.fillStyle = "rgba(243, 230, 201, 0.95)";
-        ctx.fillRect(canvas.width * 0.08, top, canvas.width * 0.84, boxH);
+        ctx.fillRect(gw * 0.08, top, gw * 0.84, boxH);
         ctx.fillStyle = "#2b1d12";
         ctx.font = `${size}px "Rye", Georgia, serif`;
-        ctx.fillText(roundName(), canvas.width / 2, top + size * 0.75);
+        ctx.fillText(roundName(), gw / 2, top + size * 0.75);
         // Shrink the text if the longest line would spill out of the card
         let fs = Math.round(size * 0.45);
         ctx.font = `${fs}px "Special Elite", monospace`;
         const widest = Math.max(...lines.map((l) => ctx.measureText(l).width));
-        if (widest > canvas.width * 0.8) fs = Math.floor((fs * canvas.width * 0.8) / widest);
+        if (widest > gw * 0.8) fs = Math.floor((fs * gw * 0.8) / widest);
         ctx.font = `${fs}px "Special Elite", monospace`;
-        lines.forEach((line, i) => ctx.fillText(line, canvas.width / 2, top + size * 1.55 + i * lh));
+        lines.forEach((line, i) => ctx.fillText(line, gw / 2, top + size * 1.55 + i * lh));
         ctx.fillStyle = "#f3e6c9";
         ctx.font = `${size * 1.4}px "Rye", Georgia, serif`;
-        ctx.fillText(String(Math.ceil(phaseTime)), canvas.width / 2, top + boxH + size * 0.9);
+        ctx.fillText(String(Math.ceil(phaseTime)), gw / 2, top + boxH + size * 0.9);
       } else {
         ctx.font = `${size}px "Rye", Georgia, serif`;
-        ctx.fillText(roundName(), canvas.width / 2, canvas.height / 2 - size);
+        ctx.fillText(roundName(), gw / 2, gh / 2 - size);
         ctx.font = `${size * 2}px "Rye", Georgia, serif`;
-        ctx.fillText(String(Math.ceil(phaseTime)), canvas.width / 2, canvas.height / 2 + size * 0.6);
+        ctx.fillText(String(Math.ceil(phaseTime)), gw / 2, gh / 2 + size * 0.6);
       }
       ctx.textBaseline = "alphabetic";
     }
@@ -520,6 +530,37 @@ export function createCabinet({ onSwap }) {
     if (text !== statusText) {
       statusText = text;
       $("status").textContent = text;
+    }
+  }
+
+  function drawCheatFlash(gw, gh) {
+    cheatFlash.t -= 1 / 60;
+    if (cheatFlash.t <= 0) {
+      cheatFlash = null;
+      return;
+    }
+    ctx.save();
+    ctx.font = '14px "Special Elite", monospace';
+    const w = ctx.measureText(cheatFlash.text).width + 24;
+    ctx.fillStyle = "rgba(90, 30, 110, 0.92)";
+    ctx.fillRect(gw / 2 - w / 2, gh - 70, w, 26);
+    ctx.fillStyle = "#f3e6c9";
+    ctx.textAlign = "center";
+    ctx.textBaseline = "middle";
+    ctx.fillText(cheatFlash.text, gw / 2, gh - 57);
+    ctx.restore();
+  }
+
+  // Cheat codes: a game lists words; typing one while playing runs it (a testing aid)
+  function checkCheat(e) {
+    if (!game.cheats || phase !== "play" || paused || !/^[a-z]$/i.test(e.key)) return;
+    cheatKeys = (cheatKeys + e.key.toUpperCase()).slice(-12);
+    for (const [code, cheat] of Object.entries(game.cheats)) {
+      if (!cheatKeys.endsWith(code)) continue;
+      cheatKeys = "";
+      const said = cheat.run(set.round);
+      cheatFlash = { text: `CHEAT ${code}: ${said || cheat.does}`, t: 2.5 };
+      return;
     }
   }
 
