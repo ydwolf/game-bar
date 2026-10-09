@@ -1,6 +1,6 @@
 # The Game Bar
 
-A western-saloon "cocktail cabinet": one static web page with seven two-sided arcade games. Every side of every game can be played by a human or by the computer, so you can play a friend on the same device, play either role against the computer, or watch the computer play itself.
+A western-saloon "cocktail cabinet": one static web page with six two-sided arcade games. Every side of every game can be played by a human or by the computer, so you can play a friend on the same device, play either role against the computer, or watch the computer play itself.
 
 | Game | Side A | Side B |
 |---|---|---|
@@ -10,11 +10,8 @@ A western-saloon "cocktail cabinet": one static web page with seven two-sided ar
 | Asteroids | 🚀 Ship — survive 45 s | ☄️ Rock thrower — aim rocks at the ship |
 | Missile Command | 💣 Defender — save the towns | 🔥 Raider — flatten 4 of 6 towns |
 | Gold Rush (Pac-Man) | 🤠 Prospector — collect the gold | 🦹 Bandit — catch the prospector |
-| Life in the Colony | 🧑‍🌾 Founder — first to 1000 of each resource | 🤠 Rival — the same race on identical land |
 
 Matches are first to 3 rounds. Each round is a level: the game's numbers change and the computer player gets sharper, so it starts easy and gets harder whichever side you play.
-
-**Life in the Colony** is a pocket version of my own colony-sim design (Notion GDD + brainstorm log), played as a race between two rival colonies on identical land: gather by minigame, build, hire visitors at the Tavern (villages filter jobs), forge tools that wear out, cook, house and heal. The first colony to stockpile 1000 of every resource wins, so everything spent on growth has to be earned back. One player gets a zoomed view of their own colony with the rival's progress at the top; two players (or the computer vs itself) get a split screen. Each level switches on more of the design: tools → couriers and blacksmiths → crops, hunger and cooking → housing → sickness.
 
 ## Controls
 

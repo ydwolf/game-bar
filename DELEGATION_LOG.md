@@ -264,3 +264,20 @@ A record of what I asked Claude (Claude Code, desktop app) to do, what it produc
 - **Pacing:** the first version took about 4.5 minutes at level 1, so worker trips were raised from 20 to 40, bringing it to about 3 minutes (5.5 at level 5). A trace of one colony shows roughly 90 seconds of setup, then about 15 resources a second once 6 workers are in.
 - **In the browser:** both the one-player view and the split screen were drawn from a mid-round state and checked by screenshot. There were no console errors.
 - *Not yet:* the user's playtest. The split-screen NEXT text is small at half width.
+
+## 14. Life in the Colony removed — 2026-10-09
+
+**Asked:** "I don't like Colony, just take it out. We'll find another game."
+
+**Produced:**
+- Deleted `js/games/colony.js` (it stays in git history if it's ever wanted back).
+- Removed it from the menu (`js/games/index.js`), the fairness test and the README. The README now says six games.
+- Kept the small, game-agnostic cabinet features added while building it, since any future game can use them:
+  - a per-game time scale
+  - a longer countdown with a goal card (`intro`)
+  - a zoomed camera for cursors (`view`)
+  - an optional how-to list on the setup screen
+
+**Verified:**
+- The menu shows the six remaining games, with no console errors.
+- *Open:* the cabinet needs a seventh game (plus Imitation) to meet the rubric. That's for the user to choose.
