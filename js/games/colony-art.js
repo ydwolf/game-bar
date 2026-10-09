@@ -38,6 +38,24 @@ const PAL = {
 };
 
 const SPRITES = {
+  houseBroken: [
+    "................",
+    "................",
+    "................",
+    ".........k...kk.",
+    "....kR...kk..kmk",
+    "...kRRk..kRk.kmk",
+    "..kRRRRk.kRRkkmk",
+    ".kRRRRRkkkRRRRk.",
+    "kkkkkkkkkkkkkkkk",
+    ".kMmMMkkkkMMmMk.",
+    ".kMMmkyyykMmMMk.",
+    ".kmMMkykykMMmMk.",
+    ".kMmMkkkkkMmMMk.",
+    ".kMMmkMmMkMMmMk.",
+    ".kMmMkMMmkMmMMk.",
+    ".kkkkkkkkkkkkkkk",
+  ],
   tree: [
     ".......gg.......",
     "......gLGg......",
@@ -375,6 +393,16 @@ const ICONS = {
     ".kwwwwk.",
     "..kkkk..",
     "........",
+    "........",
+  ],
+  star: [
+    "...yy...",
+    "...yy...",
+    "yyyyyyyy",
+    ".yyyyyy.",
+    "..yyyy..",
+    ".yy..yy.",
+    "yy....yy",
     "........",
   ],
   alert: [

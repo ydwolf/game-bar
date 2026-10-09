@@ -331,3 +331,41 @@ The user said: "keep it single player and make it better… look at the rest of 
   - A minigame now cancels if you're away from its target.
   - The year picker's text was unreadable.
 - *Not yet:* a real-time playthrough in this browser (the page is marked hidden there, so it stays paused). The user's playtest is the next step.
+
+## 16. Colony playtest: stored items, food, and giving year 4 a purpose — 2026-10-09
+
+**Asked:**
+- "When I drop my inventory at the Hall it doesn't contribute to the total."
+- Then, from playing to year 4:
+  - "we're bottlenecked on food, it doesn't spawn quickly enough"
+  - "the healer has no purpose"
+  - "the food has no purpose, I don't see any effect"
+  - "I built all the houses in the first year"
+  - "the Builder's Yard has no purpose"
+
+**Produced:**
+- **Only stored things count.** The winter totals had already included the bag, so storing didn't move the number. Now only what's in the village counts: the Hall, the huts' piles and the Kitchen.
+  - Food or wood in your bag shows as a yellow "+N" in its WINTER box.
+  - Storing at the Hall says "Stored 16 — winter food 54/60, wood 59/60".
+  - Near the snow, the NEXT bar tells you to drop your bag off.
+- **More food:**
+  - Each harvest gives 3 food instead of 2, and fields regrow faster (7 s with the Farm, down from 9).
+  - 8 more fields can be planted for 3 wood each, by you or by the Builder.
+- **A reason for the Healer:**
+  - Food poisoning now lasts 2 days on its own.
+  - Sick people don't count toward the People you need for winter.
+  - A Healer cures them in seconds.
+- **A reason for meals:**
+  - Starving villagers stop working, and the worker count shows it.
+  - A cooked meal makes a villager "well fed" for a day: they move 35% faster and gather twice as fast, shown by a gold star over their head. Raw food only stops the hunger, and can poison.
+  - Hunger now comes every 2 days instead of 1.5.
+- **A reason for houses and the Builder:**
+  - Only as many house plots appear as the year needs, plus one, so houses get built as the village grows.
+  - Each winter, the snow caves in one roof for every three houses, and those houses give no beds until repaired (3 wood + 1 stone).
+  - The Builder repairs roofs first, then builds houses, then plants fields when food is behind.
+
+**Verified:**
+- The tuning script, run after each change, now shows year 1 ready on day 6, years 2–3 comfortable, and year 4 the hardest step (7/8 bot runs survive, ready on day 7.9). It gets tighter from year 6 and runs end around years 9–10.
+  - Bigger harvests made the late game too easy, so the harsher-winter ramp went back to +2 per person per year after year 4.
+- In the browser I drew year 4 after a real year 3. Fields to plant, the "well fed" stars, the store message, and the Builder having repaired both caved-in roofs all appear.
+- The browser had cached the old art file, which caused a missing-sprite error. Reloading fixed it, but the user should hard-refresh.
