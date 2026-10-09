@@ -267,6 +267,16 @@ button {
   padding: 14px 16px 0;
 }
 
+.topbar-actions {
+  display: flex;
+  gap: 8px;
+}
+
+#mute-btn {
+  min-width: 2.6em;
+  text-align: center;
+}
+
 .back-link,
 .btn {
   display: inline-block;
@@ -735,4 +745,19 @@ button {
   .overlay { inset: 7px; padding: 12px; }
   .seat { padding: 4px 10px; gap: 8px; }
   .seat-name { font-size: 0.95rem; }
+}
+
+/* One-player games: a single seat card, centred */
+.seats.solo {
+  grid-template-columns: minmax(0, 420px);
+  justify-content: center;
+}
+
+.level-select {
+  font: inherit;
+  padding: 2px 6px;
+  border-radius: 6px;
+  border: 1px solid var(--ink-soft);
+  background: var(--parchment);
+  color: inherit;
 }

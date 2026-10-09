@@ -1,6 +1,7 @@
 // Missile Command — the Raider rains meteors on six frontier towns; the Defender bursts
 // cannon shells in their path. Blasts catch meteors, and caught meteors blow up too.
 import { clamp, lerp, rand, chance, Clock } from "../util.js";
+import { sfx } from "../sound.js";
 
 const W = 640;
 const H = 480;
@@ -40,6 +41,7 @@ function createRound({ level, inputs }) {
   const end = (winner, reason) => {
     r.winner = winner;
     r.endReason = reason;
+    sfx("win");
   };
 
   function launch(tx, sx = clamp(tx + rand(-220, 220), 20, W - 20), sy = 0) {
@@ -54,6 +56,7 @@ function createRound({ level, inputs }) {
     if (!m || r.supply < SPLIT_COST) return;
     r.supply -= SPLIT_COST;
     m.done = true;
+    sfx("power", { pitch: 1.3, volume: 0.6 });
     for (const dx of [-80, 0, 80]) {
       launch(clamp(c.x + dx, 20, W - 20), m.x, m.y);
       r.meteors[r.meteors.length - 1].split = true;
@@ -61,8 +64,9 @@ function createRound({ level, inputs }) {
   }
 
   function fire(c) {
-    if (r.ammo <= 0) return;
+    if (r.ammo <= 0) return sfx("error");
     r.ammo--;
+    sfx("shoot", { volume: 0.6 });
     const len = Math.hypot(c.x - CANNON.x, c.y - CANNON.y) || 1;
     r.shells.push({
       x: CANNON.x, y: CANNON.y, tx: c.x, ty: c.y,
@@ -83,6 +87,7 @@ function createRound({ level, inputs }) {
     r.cooldown -= dt;
     if (rin.pressed.action && r.supply > 0 && r.cooldown <= 0) {
       launch(r.cursors[1].x);
+      sfx("laser", { pitch: 0.5, volume: 0.5 });
       r.supply--;
       r.cooldown = r.launchEvery;
     }
@@ -102,6 +107,7 @@ function createRound({ level, inputs }) {
       if (s.remaining <= 0) {
         s.done = true;
         explode(s.tx, s.ty, BLAST_R);
+        sfx("explode", { pitch: 1.4, volume: 0.6 });
       }
     }
     r.shells = r.shells.filter((s) => !s.done);
@@ -113,12 +119,20 @@ function createRound({ level, inputs }) {
       if (r.blasts.some((b) => Math.hypot(m.x - b.x, m.y - b.y) < b.r)) {
         m.done = true;
         explode(m.x, m.y, 26);
+        sfx("brick", { volume: 0.7 });
         continue;
       }
       if (m.y >= GROUND) {
         m.done = true;
         explode(m.x, GROUND, 30);
-        for (const t of r.towns) if (t.alive && Math.abs(t.x - m.x) < TOWN_HALF + 4) t.alive = false;
+        let flattened = false;
+        for (const t of r.towns) {
+          if (t.alive && Math.abs(t.x - m.x) < TOWN_HALF + 4) {
+            t.alive = false;
+            flattened = true;
+          }
+        }
+        sfx(flattened ? "explode" : "thud", flattened ? { pitch: 0.7 } : { volume: 0.6 });
       }
     }
     r.meteors = r.meteors.filter((m) => !m.done);

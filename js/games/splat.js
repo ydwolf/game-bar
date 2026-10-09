@@ -2,6 +2,7 @@
 // down to make it miss. The gap locks shortly before the bird arrives, so the Planter has to
 // commit — no dodging at the last instant.
 import { clamp, lerp, rand, chance } from "../util.js";
+import { sfx } from "../sound.js";
 
 const W = 420;
 const H = 560;
@@ -39,6 +40,7 @@ function createRound({ level, inputs }) {
   const end = (winner, reason) => {
     r.winner = winner;
     r.endReason = reason;
+    sfx("win");
   };
 
   function hitsRect(x, y, w, h) {
@@ -55,7 +57,10 @@ function createRound({ level, inputs }) {
     const bird = r.bird;
     const c = r.cactus;
 
-    if (inputs[0].pressed.action) bird.vy = FLAP_V;
+    if (inputs[0].pressed.action) {
+      bird.vy = FLAP_V;
+      sfx("flap");
+    }
     bird.vy += GRAVITY * dt;
     bird.y += bird.vy * dt;
     if (bird.y < BIRD_R) {
@@ -64,7 +69,10 @@ function createRound({ level, inputs }) {
     }
 
     c.x -= r.speed * dt;
-    if (!c.locked && c.x <= r.lockX()) c.locked = true;
+    if (!c.locked && c.x <= r.lockX()) {
+      c.locked = true;
+      sfx("chop");
+    }
 
     if (!c.locked) {
       const pin = inputs[1];
@@ -81,11 +89,13 @@ function createRound({ level, inputs }) {
     const topH = r.gy - GAP / 2;
     const bottomY = r.gy + GAP / 2;
     if (hitsRect(c.x, 0, CACTUS_W, topH) || hitsRect(c.x, bottomY, CACTUS_W, GROUND - bottomY)) {
+      sfx("thud");
       end(1, "Splat! Right into the saguaro.");
       return r.winner;
     }
     if (bird.y + BIRD_R >= GROUND) {
       bird.y = GROUND - BIRD_R;
+      sfx("thud");
       end(1, "Splat! The bird hit the dirt.");
       return r.winner;
     }
@@ -93,6 +103,7 @@ function createRound({ level, inputs }) {
     if (!c.passed && c.x + CACTUS_W < BIRD_X - BIRD_R) {
       c.passed = true;
       r.cleared++;
+      sfx("score");
       if (r.cleared >= TO_CLEAR) end(0, `The bird cleared all ${TO_CLEAR} cacti!`);
       else r.cactus = newCactus();
     }

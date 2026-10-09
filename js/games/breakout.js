@@ -1,6 +1,7 @@
 // Breakout — the Paddle tries to drill a hole through the adobe wall and get the ball out to
 // the sky behind it; the Mason patches holes with mortar and rolls tumbleweeds at the ball.
 import { clamp, lerp, rand, chance, Clock, formatTime } from "../util.js";
+import { sfx } from "../sound.js";
 
 const W = 480;
 const H = 560;
@@ -49,6 +50,7 @@ function createRound({ level, inputs }) {
   const end = (winner, reason) => {
     r.winner = winner;
     r.endReason = reason;
+    sfx("win");
   };
 
   function launch() {
@@ -56,6 +58,7 @@ function createRound({ level, inputs }) {
     r.ball.vx = r.speed * Math.sin(a);
     r.ball.vy = -r.speed * Math.cos(a);
     r.ball.stuck = false;
+    sfx("shoot", { pitch: 0.8, volume: 0.6 });
   }
 
   function brickAt(x, y) {
@@ -76,15 +79,18 @@ function createRound({ level, inputs }) {
     if (!b || b.alive || r.mortar < 1) return;
     if (nearBall(b)) {
       r.flash = 0.25;
+      sfx("error");
       return;
     }
     b.alive = true;
     r.mortar -= 1;
+    sfx("place");
   }
 
   function throwWeed(c) {
     if (r.weed || r.mortar < WEED_COST) return;
     r.mortar -= WEED_COST;
+    sfx("throw");
     const fromLeft = c.x < W / 2;
     r.weed = { x: fromLeft ? -16 : W + 16, y: WEED_Y, vx: (fromLeft ? 1 : -1) * (110 + 10 * level), r: 15, rot: 0 };
   }
@@ -95,14 +101,15 @@ function createRound({ level, inputs }) {
     b.x += b.vx * t;
     b.y += b.vy * t;
 
-    if (b.x < b.r) { b.x = b.r; b.vx = Math.abs(b.vx); }
-    if (b.x > W - b.r) { b.x = W - b.r; b.vx = -Math.abs(b.vx); }
+    if (b.x < b.r) { b.x = b.r; b.vx = Math.abs(b.vx); sfx("bounce", { pitch: 1.4, volume: 0.5 }); }
+    if (b.x > W - b.r) { b.x = W - b.r; b.vx = -Math.abs(b.vx); sfx("bounce", { pitch: 1.4, volume: 0.5 }); }
     if (b.y < TOP - 4) {
       end(0, "The paddle broke through the wall!");
       return false;
     }
     if (b.y - b.r > H) {
       r.lives--;
+      sfx("lose");
       if (r.lives <= 0) end(1, "The mason wore the paddle down!");
       else b.stuck = true;
       return false;
@@ -114,6 +121,7 @@ function createRound({ level, inputs }) {
       b.vx = r.speed * Math.sin(a);
       b.vy = -r.speed * Math.cos(a);
       b.y = p.y - b.r;
+      sfx("bounce");
     }
 
     const w = r.weed;
@@ -129,6 +137,7 @@ function createRound({ level, inputs }) {
           b.vx -= 2 * dot * nx;
           b.vy -= 2 * dot * ny;
         }
+        if (dot < 0) sfx("thud", { pitch: 1.5 });
         b.x = w.x + nx * (b.r + w.r);
         b.y = w.y + ny * (b.r + w.r);
       }
@@ -141,6 +150,7 @@ function createRound({ level, inputs }) {
       if ((b.x - nx) ** 2 + (b.y - ny) ** 2 > b.r * b.r) continue;
       br.alive = false;
       r.smashed++;
+      sfx("brick");
       const ox = Math.min(b.x + b.r - br.x, br.x + BW - (b.x - b.r));
       const oy = Math.min(b.y + b.r - br.y, br.y + BH - (b.y - b.r));
       if (ox < oy) b.vx = b.x < br.x + BW / 2 ? -Math.abs(b.vx) : Math.abs(b.vx);

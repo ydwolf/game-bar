@@ -1,5 +1,6 @@
 // Snake — the Snake hunts the Pear; the Pear has to survive until the clock runs out.
 import { DIRS, DIR_NAMES, OPPOSITE, bfs, floodCount, chance, pick, lerp, rand, formatTime } from "../util.js";
+import { sfx } from "../sound.js";
 
 const N = 20;
 const S = 24;
@@ -57,6 +58,7 @@ function createRound({ level, inputs }) {
   const end = (winner, reason) => {
     r.winner = winner;
     r.endReason = reason;
+    sfx("win");
   };
 
   const snakeAt = (x, y, from = 0) => r.snake.some((s, i) => i >= from && s.x === x && s.y === y);
@@ -72,14 +74,17 @@ function createRound({ level, inputs }) {
     const head = r.snake[0];
     const nx = head.x + DIRS[r.dir][0];
     const ny = head.y + DIRS[r.dir][1];
-    if (!inBounds(nx, ny)) return end(1, "The snake slammed into the fence!");
-    if (r.cacti.has(key(nx, ny))) return end(1, "The snake ran into a cactus!");
+    if (!inBounds(nx, ny)) return sfx("thud"), end(1, "The snake slammed into the fence!");
+    if (r.cacti.has(key(nx, ny))) return sfx("thud"), end(1, "The snake ran into a cactus!");
     const body = r.grow > 0 ? r.snake : r.snake.slice(0, -1);
-    if (body.some((s) => s.x === nx && s.y === ny)) return end(1, "The snake bit its own tail!");
+    if (body.some((s) => s.x === nx && s.y === ny)) return sfx("hit"), end(1, "The snake bit its own tail!");
     r.snake.unshift({ x: nx, y: ny });
     if (r.grow > 0) r.grow--;
     else r.snake.pop();
-    if (nx === r.pear.x && ny === r.pear.y) end(0, "The snake caught the pear!");
+    if (nx === r.pear.x && ny === r.pear.y) {
+      sfx("eat");
+      end(0, "The snake caught the pear!");
+    }
   }
 
   // Returns true if the pear moved
@@ -89,6 +94,7 @@ function createRound({ level, inputs }) {
     if (!inBounds(nx, ny) || r.cacti.has(key(nx, ny)) || snakeAt(nx, ny, 1)) return false;
     r.pear = { x: nx, y: ny };
     if (nx === r.snake[0].x && ny === r.snake[0].y) {
+      sfx("eat");
       end(0, "The pear rolled right into the snake's mouth!");
       return false;
     }
@@ -104,6 +110,7 @@ function createRound({ level, inputs }) {
     r.dashCd = Math.max(0, r.dashCd - dt);
     if (inputs[1].pressed.action && r.dashCd === 0 && r.pdir) {
       r.dashCd = DASH_COOLDOWN;
+      sfx("dash");
       for (let i = 0; i < 2 && r.winner === null; i++) if (!movePear(r.pdir)) break;
     }
 
@@ -111,6 +118,7 @@ function createRound({ level, inputs }) {
     if (r.growTimer <= 0) {
       r.grow++;
       r.growTimer += GROW_EVERY;
+      sfx("tick", { volume: 0.6 });
     }
 
     r.snakeT += dt;
@@ -124,7 +132,9 @@ function createRound({ level, inputs }) {
       if (r.pdir) movePear(r.pdir);
     }
 
+    const before = Math.ceil(r.time);
     r.time -= dt;
+    if (r.winner === null && r.time > 0 && r.time <= 5 && Math.ceil(r.time) < before) sfx("blip");
     if (r.winner === null && r.time <= 0) end(1, "The pear outlasted the snake!");
     return r.winner;
   };

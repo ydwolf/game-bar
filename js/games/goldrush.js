@@ -3,6 +3,7 @@
 // a scared Bandit caught by the Prospector gets thrown in the jailhouse. The Bandit can dig in
 // its spurs for a short sprint.
 import { DIRS, DIR_NAMES, OPPOSITE, bfs, Clock, chance, pick, lerp, rand } from "../util.js";
+import { sfx } from "../sound.js";
 
 // # wall   . gold   o dynamite   _ jailhouse door (bandit only)   space: jailhouse
 const MAZE = [
@@ -102,6 +103,7 @@ function createRound({ level, inputs }) {
   const end = (winner, reason) => {
     r.winner = winner;
     r.endReason = reason;
+    sfx("win");
   };
 
   // Once out of the jailhouse, the bandit can't walk back in
@@ -124,6 +126,7 @@ function createRound({ level, inputs }) {
     if (inputs[1].pressed.action && r.spurCd === 0 && r.scared === 0 && r.jailed <= 0) {
       r.spur = SPUR_TIME;
       r.spurCd = SPUR_COOLDOWN;
+      sfx("dash");
     }
 
     move(r.pro, r.proSpeed, dt, proOpen);
@@ -133,18 +136,27 @@ function createRound({ level, inputs }) {
 
     const px = Math.round(r.pro.x);
     const py = Math.round(r.pro.y);
-    if (r.gold.delete(idx(px, py)) && r.gold.size === 0) {
-      end(0, "The prospector struck it rich!");
-      return r.winner;
+    if (r.gold.delete(idx(px, py))) {
+      sfx("coin", { volume: 0.6 });
+      if (r.gold.size === 0) {
+        end(0, "The prospector struck it rich!");
+        return r.winner;
+      }
     }
-    if (r.dynamite.delete(idx(px, py))) r.scared = r.scareTime;
+    if (r.dynamite.delete(idx(px, py))) {
+      r.scared = r.scareTime;
+      sfx("explode", { volume: 0.7 });
+      sfx("power");
+    }
 
     if (r.jailed <= 0 && Math.hypot(r.pro.x - r.bandit.x, r.pro.y - r.bandit.y) < 0.7) {
       if (r.scared > 0) {
         sendToJail(3);
         r.scared = 0;
+        sfx("score");
       } else {
         r.lives--;
+        sfx("hit");
         if (r.lives <= 0) {
           end(1, "The bandit caught the prospector!");
           return r.winner;

@@ -1,6 +1,7 @@
 // Asteroids — the Ship has to survive the storm; the Rock thrower picks where each rock is
 // headed and hurls it in from the edge of the sky.
 import { clamp, lerp, rand, chance, angleDiff, Clock, formatTime } from "../util.js";
+import { sfx } from "../sound.js";
 
 const W = 640;
 const H = 480;
@@ -25,6 +26,7 @@ function createRound({ level, inputs }) {
     rockSpeed: [160, 150, 142, 135, 128][level - 1],
     maxRocks: 5 + level,
     fireCd: 0,
+    thrustSnd: 0,
     respawn: 0,
     clock: 0,
     winner: null,
@@ -38,6 +40,7 @@ function createRound({ level, inputs }) {
   const end = (winner, reason) => {
     r.winner = winner;
     r.endReason = reason;
+    sfx("win");
   };
 
   function makeRock(x, y, size, vx, vy) {
@@ -65,6 +68,7 @@ function createRound({ level, inputs }) {
     const d = Math.hypot(target.x - sx, target.y - sy) || 1;
     r.rocks.push(makeRock(sx, sy, 3, ((target.x - sx) / d) * r.rockSpeed, ((target.y - sy) / d) * r.rockSpeed));
     r.supply -= 1;
+    sfx("throw");
   }
 
   function burst(x, y, n, color) {
@@ -86,6 +90,7 @@ function createRound({ level, inputs }) {
   function breakRock(rock, spawned) {
     rock.dead = true;
     burst(rock.x, rock.y, 6 + rock.size * 4, "#d9b98a");
+    sfx("explode", { pitch: [0, 1.8, 1.3, 1][rock.size], volume: 0.3 + 0.2 * rock.size });
     if (rock.size === 1) return;
     for (let i = 0; i < 2; i++) {
       const a = rand(0, Math.PI * 2);
@@ -121,6 +126,11 @@ function createRound({ level, inputs }) {
     if (ship) {
       if (sin.held.left) ship.a -= 4.2 * dt;
       if (sin.held.right) ship.a += 4.2 * dt;
+      r.thrustSnd -= dt;
+      if (sin.held.up && r.thrustSnd <= 0) {
+        r.thrustSnd = 0.18;
+        sfx("flap", { pitch: 0.45, volume: 0.35 });
+      }
       if (sin.held.up) {
         ship.vx += Math.cos(ship.a) * 280 * dt;
         ship.vy += Math.sin(ship.a) * 280 * dt;
@@ -144,11 +154,15 @@ function createRound({ level, inputs }) {
         const s = Math.sin(ship.a);
         r.bullets.push({ x: ship.x + c * 14, y: ship.y + s * 14, vx: ship.vx + c * BULLET_SPEED, vy: ship.vy + s * BULLET_SPEED, life: 0.9 });
         r.fireCd = 0.22;
+        sfx("laser", { volume: 0.7 });
       }
     } else {
       r.respawn -= dt;
       const clear = r.rocks.every((rk) => Math.hypot(rk.x - W / 2, rk.y - H / 2) > rk.r + 80);
-      if (r.respawn <= 0 && (clear || r.respawn < -2)) r.ship = newShip();
+      if (r.respawn <= 0 && (clear || r.respawn < -2)) {
+        r.ship = newShip();
+        sfx("power", { volume: 0.6 });
+      }
     }
 
     for (const b of r.bullets) {
@@ -174,6 +188,7 @@ function createRound({ level, inputs }) {
         if (rock.dead || Math.hypot(r.ship.x - rock.x, r.ship.y - rock.y) > rock.r + SHIP_R * 0.7) continue;
         breakRock(rock, spawned);
         burst(r.ship.x, r.ship.y, 30, "#e8903a");
+        sfx("hit");
         r.ship = null;
         r.lives--;
         r.respawn = 1;

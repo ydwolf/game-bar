@@ -44,7 +44,10 @@
     <nav class="topbar">
       <a class="back-link" href="#/">← Leave the table</a>
       <div class="play-heading"><span class="kicker" id="play-kicker"></span><span class="play-title" id="play-title"></span></div>
-      <button class="back-link" id="pause-btn" type="button">Pause</button>
+      <div class="topbar-actions">
+        <button class="back-link" id="mute-btn" type="button" aria-label="Mute sound" title="Sound on/off (M)">🔊</button>
+        <button class="back-link" id="pause-btn" type="button">Pause</button>
+      </div>
     </nav>
 
     <main class="table" id="table">
@@ -66,5 +69,28 @@
   </section>
 
   <script type="module" src="js/main.js"></script>
+  <script type="module">
+    import { toggleMuted, isMuted } from "./js/sound.js";
+    const btn = document.getElementById("mute-btn");
+    const show = () => {
+      btn.textContent = isMuted() ? "🔇" : "🔊";
+      btn.setAttribute("aria-label", isMuted() ? "Unmute sound" : "Mute sound");
+      btn.setAttribute("aria-pressed", String(isMuted()));
+    };
+    show();
+    btn.addEventListener("click", () => {
+      toggleMuted();
+      show();
+      btn.blur();
+    });
+    window.addEventListener("keydown", (e) => {
+      if (e.key !== "m" && e.key !== "M") return;
+      if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
+      const t = e.target;
+      if (t && (t.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(t.tagName))) return;
+      toggleMuted();
+      show();
+    });
+  </script>
 </body>
 </html>
