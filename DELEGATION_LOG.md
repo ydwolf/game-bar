@@ -281,3 +281,53 @@ A record of what I asked Claude (Claude Code, desktop app) to do, what it produc
 **Verified:**
 - The menu shows the six remaining games, with no console errors.
 - *Open:* the cabinet needs a seventh game (plus Imitation) to meet the rubric. That's for the user to choose.
+
+## 15. Wave 2: Life in the Colony returns as the original one-player game, plus sound — 2026-10-09
+
+**Asked:** The user pasted the Wave 2 assignment, which asks for:
+- an original eighth game, played by a human only
+- sound in every game
+- testing on both sides
+- an improvement log
+
+The user said: "keep it single player and make it better… look at the rest of the game on the Notion documents and pick better pieces." I re-read the GDD and Brainstorming Log and proposed pieces and objectives. The user decided:
+- no raiders or defenders
+- a healer only for food poisoning from raw food, kept as a simple first version
+- no lore
+- "a basic arcade-type game"
+- "upgrade the graphics so you're not using emojis"
+- the objective is "Ready for winter"
+- also: "add a subagent to go through the other games and add sounds"
+
+**Delegated (subagent): sound for the six existing games.**
+- New `js/sound.js`: 22 sounds synthesized with Web Audio, with no audio files. It does nothing in Node, so the fairness tests still run, and it throttles repeats and caps how many sounds play at once.
+- Sounds are wired into every game's events, plus a 🔊 mute button and the M key.
+- I re-ran each game's fairness test before committing.
+
+**Produced: Life in the Colony, "Ready for winter."**
+- **The goal:** each round is a year of 9 days (spring, summer, autumn). Before the first snow you need enough people, a bed for each, and enough food and firewood. Four WINTER boxes at the top turn green as you get there.
+- **Carrying on:** make it and the village continues into a harder year after winter uses up its share. Miss and the run ends with "winters survived" and a saved best.
+- **One thing at a time:** each year switches on one more layer.
+  - Year 1: gatherers, plus tools you forge yourself.
+  - Year 2: Courier and Blacksmith.
+  - Year 3: Builder.
+  - Year 4: hunger. Raw food can cause food poisoning, so a Cook makes safe meals and a Healer cures.
+  - Year 5 and later: harsher winters.
+- **Easier to play:** you can end the year early at the Hall once ready, and evenings get dusky at the end of each day so you can feel the days pass. Snow flurries start before the first snow.
+- **Pixel art instead of emoji:** `js/games/colony-art.js` draws every sprite from character maps: trees, rocks, crops, bushes, houses, villagers coloured by job, 8×8 icons for the HUD, buildings built from blocks with signs, and seasonal ground tiles that turn white in winter.
+- **The cabinet now supports one-player games:**
+  - `solo` in a game's definition.
+  - The world carries over from one level to the next through `prev`.
+  - A game-over screen with a best score.
+  - A level select on the setup screen as a testing aid.
+
+**Verified:**
+- `tests/colony-tune.js` has a computer Founder play year after year.
+  - It is ready around day 6 of 9 in year 1 and early in years 2–3, gets tighter in years 4–6, and fails around year 7–8.
+  - Without harsher winters it never lost, so I added them.
+  - Its skill barely matters, which means the village's growth is the limit, not reflexes.
+- In the browser, I drew real game states from mid-spring, mid-summer and the year-4 snow, and checked them by screenshot. Bugs fixed:
+  - "a axe" now reads "an axe".
+  - A minigame now cancels if you're away from its target.
+  - The year picker's text was unreadable.
+- *Not yet:* a real-time playthrough in this browser (the page is marked hidden there, so it stays paused). The user's playtest is the next step.

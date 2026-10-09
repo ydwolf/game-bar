@@ -3,12 +3,13 @@
 
 import { Input, stepCursor } from "./input.js";
 
-// skills: [skillA, skillB] — a number (0..1) for a computer-controlled side, null for a human
-export function createRoundSet(game, level, skills) {
+// skills: [skillA, skillB] — a number (0..1) for a computer-controlled side, null for a human.
+// prev: the round before, for a one-player game that carries its world from level to level.
+export function createRoundSet(game, level, skills, prev = null) {
   const inputs = [new Input(), new Input()];
   const humans = skills.map((s) => s == null);
-  const round = game.createRound({ level, inputs, humans });
-  const bots = skills.map((s, i) => (s == null ? null : game.sides[i].bot(round, inputs[i], s)));
+  const round = game.createRound({ level, inputs, humans, prev });
+  const bots = skills.map((s, i) => (s == null || !game.sides[i]?.bot ? null : game.sides[i].bot(round, inputs[i], s)));
   return { round, inputs, bots };
 }
 

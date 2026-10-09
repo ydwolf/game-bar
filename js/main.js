@@ -11,6 +11,8 @@ const views = { menu: $("view-menu"), setup: $("view-setup"), play: $("view-play
 // Who sits in each seat, per game: [side A is human, side B is human]
 const seats = {};
 const seatsFor = (id) => seats[id] ?? (seats[id] = [true, false]);
+// A one-player game can start further in, to test later levels without playing through
+const startAt = {};
 
 const cabinet = createCabinet({ onSwap: (id, humans) => (seats[id] = humans) });
 
@@ -44,7 +46,7 @@ function renderMenu() {
         el("span", { class: "card-kicker" }, g.kicker),
         el("span", { class: "card-title" }, g.title),
         el("span", { class: "card-blurb" }, g.blurb),
-        el("span", { class: "card-roles" }, `${g.sides[0].emoji} ${g.sides[0].name} vs ${g.sides[1].emoji} ${g.sides[1].name}`)
+        el("span", { class: "card-roles" }, g.solo ? `${g.sides[0].emoji} One player` : `${g.sides[0].emoji} ${g.sides[0].name} vs ${g.sides[1].emoji} ${g.sides[1].name}`)
       )
     );
   }
@@ -52,7 +54,48 @@ function renderMenu() {
 
 // ---------- Seat picker ----------
 
+function renderSoloSetup(game) {
+  const root = $("setup");
+  root.innerHTML = "";
+  root.style.setProperty("--accent", game.accent);
+  const role = game.sides[0];
+  const levels = game.levelSelect || 1;
+  const pick = el(
+    "select",
+    { class: "level-select", "aria-label": "Start at", onchange: (e) => (startAt[game.id] = Number(e.target.value)) },
+    ...Array.from({ length: levels }, (_, i) => {
+      const o = el("option", { value: String(i + 1) }, `${game.levelName ? game.levelName(i + 1) : `Level ${i + 1}`}`);
+      if ((startAt[game.id] || 1) === i + 1) o.selected = true;
+      return o;
+    })
+  );
+  root.append(
+    el(
+      "header",
+      { class: "game-heading" },
+      el("p", { class: "kicker" }, game.kicker),
+      el("h1", {}, game.title),
+      el("p", { class: "setup-sub" }, "One player. How long can you last?")
+    ),
+    game.howTo ? el("ol", { class: "howto" }, ...game.howTo.map((line) => el("li", {}, line))) : null,
+    el(
+      "div",
+      { class: "seats solo" },
+      el(
+        "div",
+        { class: "seat-card is-human" },
+        el("div", { class: "seat-card-head" }, el("span", { class: "seat-card-emoji" }, role.emoji), el("h2", {}, role.name)),
+        el("p", { class: "seat-goal" }, role.goal),
+        el("p", { class: "seat-keys" }, describeControls(game, [true, false], 0))
+      )
+    ),
+    el("a", { class: "deal-btn", href: `#/${game.id}/play` }, "Deal 'em in"),
+    levels > 1 ? el("p", { class: "setup-note" }, "Start at ", pick, " (for testing later levels)") : null
+  );
+}
+
 function renderSetup(game) {
+  if (game.solo) return renderSoloSetup(game);
   const humans = seatsFor(game.id);
   const root = $("setup");
   root.innerHTML = "";
@@ -117,7 +160,7 @@ function route() {
   if (sub === "play") {
     document.title = `${game.title} · The Game Bar`;
     show("play");
-    cabinet.start(game, seatsFor(game.id));
+    cabinet.start(game, seatsFor(game.id), game.solo ? startAt[game.id] || 1 : 1);
     return;
   }
   cabinet.stop();

@@ -1,6 +1,6 @@
 # The Game Bar
 
-A western-saloon "cocktail cabinet": one static web page with six two-sided arcade games. Every side of every game can be played by a human or by the computer, so you can play a friend on the same device, play either role against the computer, or watch the computer play itself.
+A western-saloon "cocktail cabinet": one static web page with six two-sided arcade games and one original one-player game. Every side of every game can be played by a human or by the computer, so you can play a friend on the same device, play either role against the computer, or watch the computer play itself.
 
 | Game | Side A | Side B |
 |---|---|---|
@@ -10,8 +10,11 @@ A western-saloon "cocktail cabinet": one static web page with six two-sided arca
 | Asteroids | 🚀 Ship — survive 45 s | ☄️ Rock thrower — aim rocks at the ship |
 | Missile Command | 💣 Defender — save the towns | 🔥 Raider — flatten 4 of 6 towns |
 | Gold Rush (Pac-Man) | 🤠 Prospector — collect the gold | 🦹 Bandit — catch the prospector |
+| Life in the Colony (original, one player) | 🏡 Founder — get the village housed, fed and warm before the first snow | — |
 
 Matches are first to 3 rounds. Each round is a level: the game's numbers change and the computer player gets sharper, so it starts easy and gets harder whichever side you play.
+
+**Life in the Colony** is my original game, a one-player arcade cut of my own colony-sim design (Notion GDD). Each round is a year: before the first snow you need enough people, a bed for each, and enough food and firewood. Gather by a timing minigame, build, hire at the Tavern, and forge tools so villagers gather for you ("do it yourself, or delegate it"). Make it and the village carries into a harder year; miss and the run is over. Each year switches on more: couriers and blacksmiths, then builders, then hunger, cooking, food poisoning and a healer. All the art is pixel sprites drawn in code (`js/games/colony-art.js`).
 
 ## Controls
 
@@ -30,6 +33,10 @@ Plain HTML, CSS and JavaScript modules — no build step, no server, no API keys
 - `js/cabinet.js` — the table: seats, keys, pads, rounds, scoring.
 - `js/main.js` — the single page's three views: menu, seat picker, table.
 
+## Sound
+
+Every game has synthesized sound effects (`js/sound.js`, Web Audio, no audio files). The 🔊 button next to Pause, or the M key, mutes.
+
 ## Fairness check
 
 ```bash
@@ -37,6 +44,8 @@ node tests/fairness.js
 ```
 
 Plays hundreds of computer-vs-computer rounds of every game at every level with equal skill on both sides and prints how often each side wins. The per-level numbers in each game were tuned with this until every level landed near 50/50.
+
+For the one-player colony game, `node tests/colony-tune.js` has a computer Founder play year after year and prints how far it gets, and the setup screen can start at any year to test later levels.
 
 ## Deploying
 

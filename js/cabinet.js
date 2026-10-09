@@ -63,14 +63,16 @@ export function createCabinet({ onSwap }) {
   let last = 0;
   let pointerSide = -1;
   let statusText = "";
+  let firstRound = 1;
   const keyMap = new Map();
 
   // ---------- Match flow ----------
 
-  function start(g, h) {
+  function start(g, h, startRound = 1) {
     stop();
     game = g;
-    humans = h.slice();
+    humans = game.solo ? [true, false] : h.slice();
+    firstRound = startRound;
     canvas.width = game.width;
     canvas.height = game.height;
     screen.style.setProperty("--w", `${game.width}px`);
@@ -119,14 +121,15 @@ export function createCabinet({ onSwap }) {
 
   function newMatch() {
     wins = [0, 0];
-    round = 1;
+    round = firstRound;
     paused = false;
     newRound();
   }
 
-  function newRound() {
-    const skills = humans.map((h) => (h ? null : skillAt(round)));
-    set = createRoundSet(game, round, skills);
+  // A one-player game carries its world into the next level, so it gets the round before
+  function newRound(prev = null) {
+    const skills = game.solo ? [null, null] : humans.map((h) => (h ? null : skillAt(round)));
+    set = createRoundSet(game, round, skills, prev);
     phase = "countdown";
     phaseTime = set.round.countdown || 2.5; // a game can ask for longer, to read its goal
     hideOverlay();
@@ -151,13 +154,15 @@ export function createCabinet({ onSwap }) {
     } else if (phase === "roundEnd") {
       phaseTime -= dt;
       if (phaseTime <= 0) {
+        const prev = game.solo ? set.round : null;
         round++;
-        newRound();
+        newRound(prev);
       }
     }
   }
 
   function endRound(w) {
+    if (game.solo) return endSolo(w);
     wins[w]++;
     renderSeats();
     const role = game.sides[w];
@@ -179,6 +184,41 @@ export function createCabinet({ onSwap }) {
       showOverlay(`${role.emoji} ${role.name} takes round ${round}`, `${set.round.endReason}\n${score}`);
     }
   }
+
+  // One player: side 0 winning means the level was beaten and play goes on; side 1 means it's over
+  function endSolo(w) {
+    const r = set.round;
+    if (w === 0) {
+      phase = "roundEnd";
+      phaseTime = 3.5;
+      showOverlay(r.winTitle || `${roundName()} cleared!`, r.endReason);
+      return;
+    }
+    phase = "over";
+    const cleared = round - 1;
+    const best = Math.max(cleared, readBest());
+    writeBest(best);
+    renderSeats();
+    showOverlay(r.loseTitle || "Game over", `${r.endReason}\n${game.scoreText ? game.scoreText(cleared) : `Cleared ${cleared}`} · Best: ${best}`, [
+      { label: "Play again", primary: true, onClick: newMatch },
+      { label: "Back to the bar", onClick: () => (location.hash = "#/") },
+    ]);
+  }
+
+  const bestKey = () => `gamebar.best.${game.id}`;
+  function readBest() {
+    try {
+      return Number(localStorage.getItem(bestKey())) || 0;
+    } catch {
+      return 0;
+    }
+  }
+  function writeBest(n) {
+    try {
+      localStorage.setItem(bestKey(), String(n));
+    } catch {}
+  }
+  const roundName = () => (set && set.round.roundLabel ? set.round.roundLabel : `Round ${round}`);
 
   function swapSeats() {
     humans = [humans[1], humans[0]];
@@ -353,10 +393,12 @@ export function createCabinet({ onSwap }) {
   // ---------- HUD ----------
 
   function renderSeats() {
+    $("seat-b").hidden = !!game.solo;
     [0, 1].forEach((side) => {
       const role = game.sides[side];
       const el = $(side === 0 ? "seat-a" : "seat-b");
-      const pips = "●".repeat(wins[side]) + "○".repeat(ROUNDS_TO_WIN - wins[side]);
+      if (!role) return;
+      const pips = game.solo ? `${roundName()} · Best ${readBest()}` : "●".repeat(wins[side]) + "○".repeat(ROUNDS_TO_WIN - wins[side]);
       el.innerHTML = "";
       const parts = [
         ["seat-emoji", role.emoji],
@@ -454,7 +496,7 @@ export function createCabinet({ onSwap }) {
         ctx.fillRect(canvas.width * 0.08, top, canvas.width * 0.84, boxH);
         ctx.fillStyle = "#2b1d12";
         ctx.font = `${size}px "Rye", Georgia, serif`;
-        ctx.fillText(`Round ${round}`, canvas.width / 2, top + size * 0.75);
+        ctx.fillText(roundName(), canvas.width / 2, top + size * 0.75);
         // Shrink the text if the longest line would spill out of the card
         let fs = Math.round(size * 0.45);
         ctx.font = `${fs}px "Special Elite", monospace`;
@@ -467,14 +509,14 @@ export function createCabinet({ onSwap }) {
         ctx.fillText(String(Math.ceil(phaseTime)), canvas.width / 2, top + boxH + size * 0.9);
       } else {
         ctx.font = `${size}px "Rye", Georgia, serif`;
-        ctx.fillText(`Round ${round}`, canvas.width / 2, canvas.height / 2 - size);
+        ctx.fillText(roundName(), canvas.width / 2, canvas.height / 2 - size);
         ctx.font = `${size * 2}px "Rye", Georgia, serif`;
         ctx.fillText(String(Math.ceil(phaseTime)), canvas.width / 2, canvas.height / 2 + size * 0.6);
       }
       ctx.textBaseline = "alphabetic";
     }
 
-    const text = `Round ${round} · ${r.status()}`;
+    const text = `${roundName()} · ${r.status()}`;
     if (text !== statusText) {
       statusText = text;
       $("status").textContent = text;

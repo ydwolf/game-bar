@@ -759,5 +759,5 @@ button {
   border-radius: 6px;
   border: 1px solid var(--ink-soft);
   background: var(--parchment);
-  color: inherit;
+  color: var(--ink);
 }
