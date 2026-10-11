@@ -461,3 +461,11 @@ The cabinet gained a time-trial mode, where a lower best time is better, saved s
 - **Fixed:** the clock showed "1:60.0", and the setup screen showed a stray "null".
 - **In the browser:** I checked the village, forest, farm, mine, the bench menu and a live raid by screenshot.
 - *Not yet:* a real-time playthrough, which this browser can't run while hidden. The user's playtest comes next.
+
+## 20. Colony: throw away seeds — 2026-10-11
+
+**Asked:** "There should be an option to delete seeds." Also asked: "What's the keybind to build?"
+
+**Produced:** The seed bench now opens a small menu with "Cross two seeds" and "Throw away seeds". Throwing away lists your varieties worst first; Space discards that whole variety, and the list stays open so you can clear several in a row. Shift closes it. The bench's prompt now says what it does.
+
+**Verified:** A scripted test in Node opened the bench, picked "Throw away seeds", discarded one variety, saw the menu stay open with the rest, then closed it with Shift. The build key is Shift (or E): Space places and Shift cancels.

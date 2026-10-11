@@ -249,7 +249,7 @@ function createColony(input) {
       if (c.trophies.resource) return "The Resource Master sculpture — trophy won";
       return c.hall.log >= K.sculpture.log && c.hall.stone >= K.sculpture.stone ? "Space: build the sculpture!" : `Sculpture: ${K.sculpture.log} wood + ${K.sculpture.stone} stone in the Hall`;
     }
-    if (obj.key === "bench") return "Space: cross two seeds";
+    if (obj.key === "bench") return "Space: the seed bench (cross or throw away seeds)";
     if (obj.key === "gate") {
       if (c.trophies.raid) return "The raid room is cleared";
       return `Space: start the raid (${c.readySoldiers().length} soldiers ready)`;
@@ -403,19 +403,52 @@ function createColony(input) {
     return n;
   }
 
+  // The bench: cross two seeds, or throw away varieties you don't want cluttering the bank
   function openBench() {
-    const varieties = Object.entries(c.seeds).filter(([, n]) => n > 0);
-    if (varieties.length === 0) return fail("No seeds to cross — harvest a plant first");
+    if (!seedList().length) return fail("No seeds — harvest a plant first");
+    openMenu("Seed Bench", [
+      { label: "Cross two seeds", detail: "each stat comes from a parent, then one moves up or down by 1", run: openCross },
+      { label: "Throw away seeds", detail: "clear out varieties you don't need", run: () => openDiscard(0) },
+    ]);
+  }
+
+  // Varieties in the bank, best first (or worst first)
+  const seedList = (worstFirst = false) =>
+    Object.entries(c.seeds)
+      .filter(([, n]) => n > 0)
+      .sort((a, b) => (worstFirst ? -1 : 1) * (seedTotal(b[0].split("/").map(Number)) - seedTotal(a[0].split("/").map(Number))));
+
+  function openCross() {
     const pick = (title, exclude, then) =>
       openMenu(
         title,
-        varieties
+        seedList()
           .filter(([k, n]) => k !== exclude || n > 1)
-          .sort((a, b) => seedTotal(b[0].split("/").map(Number)) - seedTotal(a[0].split("/").map(Number)))
           .map(([k, n]) => ({ label: k, detail: `${n} seed${n > 1 ? "s" : ""}`, seed: k.split("/").map(Number), run: () => then(k) })),
         "Not enough seeds"
       );
     pick("Cross seeds: first parent", null, (a) => pick(`Cross ${a} with…`, a, (b) => cross(a, b)));
+  }
+
+  // Worst first, since those are the ones you'll want gone; the menu stays open for more
+  function openDiscard(sel) {
+    const list = seedList(true);
+    if (!list.length) return say("Your seed bank is empty");
+    openMenu(
+      "Throw away seeds (worst first)",
+      list.map(([k, n]) => ({
+        label: k,
+        detail: `${n} seed${n > 1 ? "s" : ""} — Space throws ${n > 1 ? "them all" : "it"} away`,
+        seed: k.split("/").map(Number),
+        run: () => {
+          delete c.seeds[k];
+          sfx("thud", { volume: 0.5 });
+          say(`Threw away the ${k} seeds`);
+          openDiscard(list.findIndex(([key]) => key === k));
+        },
+      }))
+    );
+    if (c.menu) c.menu.sel = Math.min(sel, c.menu.items.length - 1);
   }
 
   // Each stat comes from one parent; then one random stat shifts by one, up or down
