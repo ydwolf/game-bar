@@ -12,7 +12,7 @@
 // hunger and food poisoning (and a healer to treat it).
 import { clamp, lerp, rand, chance, Clock } from "../util.js";
 import { sfx } from "../sound.js";
-import { sprite, icon, person, personIcon, building, groundTile } from "./colony-art.js";
+import { sprite, icon, person, personIcon, building, groundPattern } from "./colony-art.js";
 
 const T = 36;
 const W = 20 * T;
@@ -1216,17 +1216,26 @@ function pill(ctx, str, x, y, color) {
   text(ctx, str, cx, cy, size, color, "center");
 }
 
-// A pixel arrow pointing down at (x, y)
+// A golden arrow pointing down, its tip at (x, y)
 function arrowDown(ctx, x, y) {
-  const px = 3;
-  const rows = ["..kkk..", "..kyk..", "..kyk..", "kkkykkk", ".kyyyk.", "..kyk..", "...k..."];
-  rows.forEach((row, j) => {
-    for (let i = 0; i < row.length; i++) {
-      if (row[i] === ".") continue;
-      ctx.fillStyle = row[i] === "k" ? INK : "#f3c35a";
-      ctx.fillRect(Math.round(x + (i - 3.5) * px), Math.round(y + (j - 7) * px), px, px);
-    }
-  });
+  ctx.beginPath();
+  ctx.moveTo(x, y);
+  ctx.lineTo(x - 9, y - 10);
+  ctx.lineTo(x - 4, y - 10);
+  ctx.lineTo(x - 4, y - 21);
+  ctx.lineTo(x + 4, y - 21);
+  ctx.lineTo(x + 4, y - 10);
+  ctx.lineTo(x + 9, y - 10);
+  ctx.closePath();
+  const g = ctx.createLinearGradient(x - 9, 0, x + 9, 0);
+  g.addColorStop(0, "#ffe38a");
+  g.addColorStop(1, "#e0a030");
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.lineWidth = 1.5;
+  ctx.lineJoin = "round";
+  ctx.strokeStyle = INK;
+  ctx.stroke();
 }
 
 function draw(ctx, r) {
@@ -1240,7 +1249,6 @@ function draw(ctx, r) {
   };
   r.view = null; // no cursors to place
   ctx.save();
-  ctx.imageSmoothingEnabled = false;
   ctx.fillStyle = "#3d2616";
   ctx.fillRect(0, 0, W, H);
   ctx.scale(ZOOM, ZOOM);
@@ -1315,7 +1323,7 @@ function drawEdgeArrow(ctx, c) {
 
 function drawZones(ctx, c) {
   const season = c.over ? "winter" : c.season();
-  ctx.fillStyle = ctx.createPattern(groundTile(season), "repeat");
+  ctx.fillStyle = groundPattern(ctx, season);
   ctx.fillRect(0, 0, W, H);
   // Forest floor, the quarry's gravel and the tilled fields
   ctx.fillStyle = "rgba(30, 60, 25, 0.28)";
@@ -1390,9 +1398,13 @@ function drawWorld(ctx, c, r) {
     }
     add(q.y - 20, () => {
       ctx.fillStyle = "#4a3418";
-      ctx.fillRect(q.x - 16, q.y - 10, 32, 22);
+      ctx.beginPath();
+      ctx.ellipse(q.x, q.y + 1, 16, 10, 0, 0, Math.PI * 2);
+      ctx.fill();
       ctx.fillStyle = "#6e4f2c";
-      ctx.fillRect(q.x - 14, q.y - 8, 28, 18);
+      ctx.beginPath();
+      ctx.ellipse(q.x, q.y, 14, 8, 0, 0, Math.PI * 2);
+      ctx.fill();
       if (q.growth >= 1) sprite(ctx, "crop", q.x, q.y + 12, 1.6);
       else if (q.growth > 0.35) sprite(ctx, "sprout", q.x, q.y + 12, 1.6);
     });
@@ -1424,7 +1436,7 @@ function drawWorld(ctx, c, r) {
   for (const it of items) it.fn();
 
   // Where the NEXT bar is pointing
-  if (c.hintTarget && !c.over) arrowDown(ctx, c.hintTarget.x, c.hintTarget.y - 30 + Math.sin(c.clock * 6) * 3);
+  if (c.hintTarget && !c.over) arrowDown(ctx, c.hintTarget.x, c.hintTarget.y - 22 + Math.sin(c.clock * 6) * 3);
 
   // The minigame bar: stop the marker inside the green
   if (c.mg) {

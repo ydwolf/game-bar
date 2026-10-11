@@ -390,3 +390,20 @@ The user said: "keep it single player and make it better… look at the rest of 
 - Every cheat was run in Node against a real round.
 - The tuning script and all six fairness runs still pass.
 - In the browser, the cheat list shows on the setup screen and a year-4 frame drawn at 3× has crisp text.
+
+## 18. Colony: smoother, more detailed art — 2026-10-11
+
+**Asked:** "Redraw the sprites so they're smoother and more detailed."
+
+**Produced:** I rewrote `js/games/colony-art.js` so every sprite is drawn with vector shapes instead of pixel grids. The functions keep the same names (`sprite`, `icon`, `person`, `building`), so the game logic didn't change. Light comes from the top left, with a soft shadow under everything.
+- **Trees:** three tiers of boughs with gradient shading and highlights.
+- **Rocks:** faceted, with cracks.
+- **Crops:** carrots with leafy fronds; bushes with berries.
+- **Cottages:** shingled roofs, chimneys, plank walls and lit windows. A caved-in version shows a snow-filled hole.
+- **People:** rounded bodies with arms, belts, faces and striding legs. Yours wears a straw hat; workers wear their job's colour.
+- **Buildings:** plank or stone walls, overhanging shingled roofs, a framed door, a warm window and a hanging sign.
+- **Icons:** all 20 HUD icons (wood, stone, carrot, meal bowl, tools, bed, mug, anvil, snowflake, sick face, star and so on) were redrawn the same way.
+- **Ground:** a seasonal tile of soft patches and grass tufts, built once at 4× detail and scaled back down so it stays sharp.
+- **Smaller pieces:** the hint arrow is a smooth gold arrow, and crop beds are rounded.
+
+**Verified:** I drew year-4 states at 2× in the browser: the village centre, the forest, the quarry and the fields. There were no console errors, and the tuning script still runs.
