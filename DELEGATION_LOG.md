@@ -469,3 +469,13 @@ The cabinet gained a time-trial mode, where a lower best time is better, saved s
 **Produced:** The seed bench now opens a small menu with "Cross two seeds" and "Throw away seeds". Throwing away lists your varieties worst first; Space discards that whole variety, and the list stays open so you can clear several in a row. Shift closes it. The bench's prompt now says what it does.
 
 **Verified:** A scripted test in Node opened the bench, picked "Throw away seeds", discarded one variety, saw the menu stay open with the rest, then closed it with Shift. The build key is Shift (or E): Space places and Shift cancels.
+
+## 21. Colony bug: couldn't assign a Blacksmith — 2026-10-11
+
+**Asked:** "How do I hire a blacksmith?" Then: "That's not an option, it just opens the forge menu if I press Space."
+
+**Found:** A real bug. At the Smithy, Space opened the forge before checking for an empty job, so an idle villager could never be put to work there. The Smithy is the only job building with a menu of its own, which is why the other buildings worked.
+
+**Fixed:** Space now puts an idle villager to work first wherever there's an empty job, and opens the forge otherwise. With no Blacksmith yet, the Smithy's prompt also says "empty job — hire at the Tavern for a Blacksmith".
+
+**Verified:** A scripted test in Node built a Smithy, hired at the Tavern, and pressed Space at the Smithy. The villager became the Blacksmith, and the next Space opened the forge.

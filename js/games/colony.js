@@ -254,8 +254,8 @@ function createColony(input) {
       if (c.trophies.raid) return "The raid room is cleared";
       return `Space: start the raid (${c.readySoldiers().length} soldiers ready)`;
     }
-    if (obj.key === "smithy") return "Space: the forge";
     if (def.job && obj.workers.length < def.slots && c.idle().length) return `Space: put an idle villager to work as ${JOBS[def.job].name}`;
+    if (obj.key === "smithy") return obj.workers.length ? "Space: the forge" : "Space: the forge (empty job — hire at the Tavern for a Blacksmith)";
     if (def.store) {
       const n = def.store === "tomato" ? countOf(obj.stock.tomatoes) : obj.stock[def.store];
       if (n) return `Space: pick up ${n} ${def.store === "log" ? "wood" : def.store === "stone" ? "stone" : "tomatoes"}`;
@@ -276,13 +276,14 @@ function createColony(input) {
     }
     if (kind === "plot") return actPlot(obj);
     const def = BUILDINGS[obj.key];
+    // An empty job and someone idle: put them to work first (the Smithy's forge comes after)
+    if (def.job && obj.workers.length < def.slots && c.idle().length) return assign(obj);
     if (obj.key === "hall") return storeBag();
     if (obj.key === "tavern") return hire();
     if (obj.key === "sculpture") return buildSculpture();
     if (obj.key === "bench") return openBench();
     if (obj.key === "smithy") return openForge();
     if (obj.key === "gate") return beginRaid();
-    if (def.job && obj.workers.length < def.slots && c.idle().length) return assign(obj);
     if (def.store) return pickUp(obj);
     if (def.job && obj.workers.length < def.slots) return say("Empty job here — hire a villager at the Tavern");
     say(def.name);
