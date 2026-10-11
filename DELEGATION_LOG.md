@@ -479,3 +479,5 @@ The cabinet gained a time-trial mode, where a lower best time is better, saved s
 **Fixed:** Space now puts an idle villager to work first wherever there's an empty job, and opens the forge otherwise. With no Blacksmith yet, the Smithy's prompt also says "empty job — hire at the Tavern for a Blacksmith".
 
 **Verified:** A scripted test in Node built a Smithy, hired at the Tavern, and pressed Space at the Smithy. The villager became the Blacksmith, and the next Space opened the forge.
+
+**Follow-up:** "No, just make the keybinds different or make it an option in the forge." Now Space at the Smithy always opens the forge. While it has no Blacksmith, the forge's first option is "Put an idle villager to work as Blacksmith". If nobody is idle, that option reads "No Blacksmith yet", and choosing it says to hire at the Tavern first. Menu options that are greyed out can now explain why, instead of always saying "can't afford". Verified with a scripted test: the forge with nobody idle, then hire, assign through the forge, and the forge again.
