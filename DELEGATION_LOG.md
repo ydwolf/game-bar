@@ -407,3 +407,57 @@ The user said: "keep it single player and make it better… look at the rest of 
 - **Smaller pieces:** the hint arrow is a smooth gold arrow, and crop beds are rounded.
 
 **Verified:** I drew year-4 states at 2× in the browser: the village centre, the forest, the quarry and the fields. There were no console errors, and the tuning script still runs.
+
+## 19. Change of plans: Life in the Colony becomes a timed trophy run — 2026-10-11
+
+**Asked:** The user pasted a new brief, "Life in the Colony — Arcade Demo":
+- a timed run where your score is your completion time
+- three trophies: Resource (a sculpture), Farming (breed a perfect tomato) and Raid (build an army and beat the raid room)
+- jobs, huts, couriers and tiered tools for exponential growth
+- crafting through a building menu, not the minigame
+- forest, mine and farm clearly separate
+- open questions, with "don't invent answers"
+
+So I asked instead of guessing, in two rounds plus follow-ups. The user decided:
+- **Map:** separate zones with travel between them.
+- **Run:** a stopwatch only, with no time limit.
+- **Resources:** one combined Resource Master trophy at about 10,000 of each.
+- **Failed raid:** soldiers come back wounded and need a Healer, with no retry period. The Healer uses crops, and better crops heal faster.
+- **Combat:** played yourself: arrows to move and dodge, Shift to block, click to attack.
+- **Army:** hire soldiers.
+- **Villagers:** hired without a job; you assign them to empty jobs, which need an empty building, and you can build as many of anything as you like.
+- **Breeding:** two seeds on a bench, with one stat moving ±1 each time. The stats are walk speed, fight, heal and work speed, a perfect plant is 10/10/10/10, and the farmer's level drives yield and growth.
+- **Placement:** I recommended free placement in big zones, so building is never limited.
+- **Huts:** 1 villager per hut.
+- **Repo:** it replaces Ready for Winter.
+- **Numbers:** placeholders are fine.
+
+**Produced:** a rewrite in four modules.
+- `colony-config.js`: every number, labelled as a placeholder.
+- `colony.js`: the logic.
+  - **Zones:** village, forest, mine, farm and raid room, each several screens big, with doorways and signposts.
+  - **Villagers:** hiring, assigning and routing between zones.
+  - **Jobs:** woodcutter, miner, farmer (who levels up), courier, blacksmith, cook, healer and soldier.
+  - **Tools:** Stone, Iron and Legendary tiers at 2, 10 and 50 per tree or rock, bought with stone. You can craft at the forge menu, or set a target for the Blacksmith.
+  - **Building:** a Shift build menu with a green or red placement preview.
+  - **Farming:** seed crossing at the bench, plus meals that boost villagers by their tomato's stats.
+  - **Trophies,** hints, and cheat codes: RICH, CROWD, TOOLS, ARMY, BLOOM and HAUL.
+- `colony-raid.js`: the fight. Waves of raiders that flash red before striking, a boss, soldiers fighting on their own, blocking, swings aimed by click, and wounding when you lose.
+- `colony-draw.js`: the screen.
+  - Camera and zones, the build preview and the seed menu with stat bars.
+  - A HUD with the clock, trophy progress, NEXT hints, bag, Hall and villagers.
+  - New vector art: tomato plants that ripen, the statue, the gate, the bench, signposts, raiders with bandanas, and seed, sword and trophy icons.
+
+The cabinet gained a time-trial mode, where a lower best time is better, saved separately from the old score.
+
+**Verified:**
+- **Node smoke test:** villagers worked across zones for two minutes, and couriers, the Blacksmith (upgrading to iron), the cook and a farmer who levelled to 4 all worked.
+- **Breeding:** a perfect seed was reachable (67 crosses when seeds are free).
+- **Raid simulations, 20 runs each.** The first version was too easy (a bare-handed player won alone), so the raiders were toughened:
+  - Alone and bare-handed: 0/20.
+  - 4 soldiers with stone swords: 10/20.
+  - Iron armies: 20/20.
+  - A legendary-sword player alone: 20/20.
+- **Fixed:** the clock showed "1:60.0", and the setup screen showed a stray "null".
+- **In the browser:** I checked the village, forest, farm, mine, the bench menu and a live raid by screenshot.
+- *Not yet:* a real-time playthrough, which this browser can't run while hidden. The user's playtest comes next.

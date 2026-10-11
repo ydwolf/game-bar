@@ -216,10 +216,167 @@ const SPRITES = {
   house(ctx) {
     cottage(ctx, false);
   },
+  // A tomato vine on a stake; `stage` is drawn by tomatoPlant() below
+  statue(ctx) {
+    plinth(ctx);
+    // A founder raising a lantern, carved in pale stone
+    ctx.fillStyle = lin(ctx, 5, 0, 11, 0, ["#f2efe8", "#cfc9bc", "#9a9488"]);
+    ctx.beginPath();
+    ctx.moveTo(6, 10.4);
+    ctx.lineTo(6.6, 5.6);
+    ctx.quadraticCurveTo(8, 4.8, 9.4, 5.6);
+    ctx.lineTo(10, 10.4);
+    ctx.closePath();
+    ctx.fill();
+    stroke(ctx, 0.25);
+    ctx.beginPath();
+    ctx.arc(8, 4, 1.3, 0, Math.PI * 2);
+    ctx.fill();
+    stroke(ctx, 0.25);
+    ctx.beginPath();
+    ctx.moveTo(9.2, 6);
+    ctx.lineTo(11.6, 2.4);
+    stroke(ctx, 0.9, "#cfc9bc");
+    ellipse(ctx, 11.8, 1.8, 0.8, 0.9, "#ffd27a");
+  },
+  plinth(ctx) {
+    plinth(ctx);
+  },
+  gate(ctx) {
+    shadow(ctx, 8, 15.6, 8);
+    // Two stone pillars and a heavy wooden door in an arch
+    ctx.fillStyle = lin(ctx, 1, 0, 15, 0, ["#8c857a", "#6c645a", "#4a4640"]);
+    ctx.beginPath();
+    ctx.moveTo(1, 16);
+    ctx.lineTo(1, 5);
+    ctx.quadraticCurveTo(8, -1.5, 15, 5);
+    ctx.lineTo(15, 16);
+    ctx.closePath();
+    ctx.fill();
+    stroke(ctx, 0.35);
+    ctx.fillStyle = lin(ctx, 4, 4, 12, 16, ["#6b4426", "#4e3019", "#2e1c11"]);
+    ctx.beginPath();
+    ctx.moveTo(3.6, 16);
+    ctx.lineTo(3.6, 7);
+    ctx.quadraticCurveTo(8, 2.6, 12.4, 7);
+    ctx.lineTo(12.4, 16);
+    ctx.closePath();
+    ctx.fill();
+    stroke(ctx, 0.3);
+    ctx.strokeStyle = "rgba(20, 10, 5, 0.6)";
+    ctx.lineWidth = 0.2;
+    for (const x of [5.8, 8, 10.2]) {
+      ctx.beginPath();
+      ctx.moveTo(x, 5);
+      ctx.lineTo(x, 16);
+      ctx.stroke();
+    }
+    for (const y of [8.6, 12.6]) {
+      ctx.fillStyle = "#3a3632";
+      ctx.fillRect(3.6, y, 8.8, 0.7);
+    }
+    ellipse(ctx, 10.6, 11, 0.4, 0.4, "#c9a45c");
+    for (const x of [2.3, 13.7]) {
+      ellipse(ctx, x, 6.4, 0.7, 1, "#ffb84a");
+      ellipse(ctx, x, 6.1, 0.35, 0.55, "#fff2a0");
+    }
+  },
+  bench(ctx) {
+    shadow(ctx, 8, 15.4, 8);
+    ctx.fillStyle = "#6b4426";
+    for (const x of [2, 13.2]) ctx.fillRect(x, 10.6, 0.9, 5);
+    ctx.fillStyle = lin(ctx, 0, 8, 0, 11, ["#c9915a", "#8a5a33"]);
+    roundRect(ctx, 0.8, 8.6, 14.4, 2.4, 0.4);
+    ctx.fill();
+    stroke(ctx, 0.3);
+    // Trays of seedlings and a little jar of seeds
+    for (const x of [2.2, 6, 9.8]) {
+      ctx.fillStyle = "#5a3a20";
+      ctx.fillRect(x, 7.4, 3.2, 1.3);
+      for (const dx of [0.7, 1.6, 2.5]) {
+        ctx.beginPath();
+        ctx.moveTo(x + dx, 7.5);
+        ctx.quadraticCurveTo(x + dx - 0.4, 6.6, x + dx - 0.1, 6.1);
+        stroke(ctx, 0.35, "#6fae4a");
+      }
+    }
+    ctx.fillStyle = "rgba(220, 235, 245, 0.7)";
+    roundRect(ctx, 13.4, 5.6, 1.8, 3, 0.4);
+    ctx.fill();
+    stroke(ctx, 0.2);
+  },
+  sign(ctx) {
+    shadow(ctx, 8, 15.4, 4);
+    ctx.fillStyle = "#6b4426";
+    ctx.fillRect(7.4, 5, 1.2, 10.8);
+    ctx.fillStyle = lin(ctx, 0, 3, 0, 8, ["#d8a46a", "#a06a3a"]);
+    ctx.beginPath();
+    ctx.moveTo(2, 3.4);
+    ctx.lineTo(12.6, 3.4);
+    ctx.lineTo(14.6, 5.4);
+    ctx.lineTo(12.6, 7.4);
+    ctx.lineTo(2, 7.4);
+    ctx.closePath();
+    ctx.fill();
+    stroke(ctx, 0.3);
+  },
   houseBroken(ctx) {
     cottage(ctx, true);
   },
 };
+
+function plinth(ctx) {
+  shadow(ctx, 8, 15.6, 7);
+  ctx.fillStyle = lin(ctx, 3, 0, 13, 0, ["#b8b1a4", "#8c857a", "#5f5a52"]);
+  ctx.fillRect(3.4, 10.4, 9.2, 5.2);
+  ctx.beginPath();
+  ctx.rect(3.4, 10.4, 9.2, 5.2);
+  stroke(ctx, 0.3);
+  ctx.fillStyle = "#cfc9bc";
+  ctx.fillRect(2.8, 10, 10.4, 1);
+  ctx.beginPath();
+  ctx.rect(2.8, 10, 10.4, 1);
+  stroke(ctx, 0.25);
+}
+
+// A tomato plant: a stake, leaves, and green-to-red fruit as `grow` goes from 0 to 1
+export function tomatoPlant(ctx, x, y, grow, scale = 2) {
+  ctx.save();
+  ctx.translate(x - 8 * scale, y - 16 * scale);
+  ctx.scale(scale, scale);
+  const h = 4 + grow * 9; // plant height
+  ctx.fillStyle = "#8f5f34";
+  ctx.fillRect(9.4, 16 - h - 1.5, 0.6, h + 1.5);
+  ctx.beginPath();
+  ctx.moveTo(8, 16);
+  ctx.quadraticCurveTo(7.2, 16 - h / 2, 8.4, 16 - h);
+  stroke(ctx, 0.6, "#3f7a35");
+  const leaves = Math.max(2, Math.round(grow * 6));
+  for (let i = 0; i < leaves; i++) {
+    const ly = 16 - (h * (i + 1)) / (leaves + 1);
+    const side = i % 2 ? 1 : -1;
+    ctx.beginPath();
+    ctx.ellipse(8 + side * 1.6, ly, 1.7, 0.8, side * 0.5, 0, Math.PI * 2);
+    ctx.fillStyle = i % 2 ? "#4f8a3a" : "#6fae4a";
+    ctx.fill();
+  }
+  if (grow > 0.45) {
+    const ripe = grow >= 1;
+    const fruit = ripe ? ["#ff7a5a", "#d8382a"] : ["#a8d070", "#6f9a3a"];
+    for (const [fx, fy] of [[6.4, 16 - h * 0.55], [9.6, 16 - h * 0.35], [7.8, 16 - h * 0.8]]) {
+      const r = ripe ? 1.35 : 0.9;
+      const g = ctx.createRadialGradient(fx - r * 0.4, fy - r * 0.4, 0.1, fx, fy, r);
+      g.addColorStop(0, fruit[0]);
+      g.addColorStop(1, fruit[1]);
+      ctx.beginPath();
+      ctx.arc(fx, fy, r, 0, Math.PI * 2);
+      ctx.fillStyle = g;
+      ctx.fill();
+      stroke(ctx, 0.15, "rgba(80, 20, 10, 0.6)");
+    }
+  }
+  ctx.restore();
+}
 
 function cottage(ctx, broken) {
   shadow(ctx, 8.4, 15.6, 8);
@@ -569,6 +726,78 @@ const ICONS = {
     ctx.fill();
     ellipse(ctx, 8, 11.8, 1.1, 1.1, "#2b1d12");
   },
+  tomato(ctx) {
+    const g = ctx.createRadialGradient(6.4, 7.4, 0.5, 8, 9, 6.4);
+    g.addColorStop(0, "#ff8a6a");
+    g.addColorStop(1, "#c8302a");
+    ctx.beginPath();
+    ctx.ellipse(8, 9.4, 6.2, 5.4, 0, 0, Math.PI * 2);
+    ctx.fillStyle = g;
+    ctx.fill();
+    stroke(ctx, 0.7, "rgba(90, 20, 10, 0.85)");
+    ctx.beginPath();
+    for (let i = 0; i < 5; i++) {
+      const a = -Math.PI / 2 + (i * Math.PI * 2) / 5;
+      ctx.moveTo(8, 4.4);
+      ctx.lineTo(8 + Math.cos(a) * 2.6, 4.4 + Math.sin(a) * 1.4 + 0.6);
+    }
+    stroke(ctx, 1, "#3f7a35");
+    ellipse(ctx, 5.6, 7.4, 1.1, 0.6, "rgba(255, 255, 255, 0.5)");
+  },
+  seed(ctx) {
+    ctx.save();
+    ctx.translate(8, 8);
+    ctx.rotate(-0.6);
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 3.6, 5.6, 0, 0, Math.PI * 2);
+    ctx.fillStyle = lin(ctx, -3, -5, 3, 5, ["#f2e0a8", "#d8b86a", "#a8843a"]);
+    ctx.fill();
+    stroke(ctx, 0.7);
+    ctx.beginPath();
+    ctx.moveTo(0, -4);
+    ctx.quadraticCurveTo(1, 0, 0, 4);
+    stroke(ctx, 0.5, "rgba(120, 90, 40, 0.7)");
+    ctx.restore();
+  },
+  sword(ctx) {
+    ctx.beginPath();
+    ctx.moveTo(12.6, 1.6);
+    ctx.lineTo(14.4, 3.4);
+    ctx.lineTo(6.2, 11.6);
+    ctx.lineTo(4.4, 9.8);
+    ctx.closePath();
+    ctx.fillStyle = lin(ctx, 4, 2, 14, 12, ["#ffffff", "#c4c8cc", "#7e8288"]);
+    ctx.fill();
+    stroke(ctx, 0.6);
+    ctx.beginPath();
+    ctx.moveTo(3, 8.6);
+    ctx.lineTo(7.4, 13);
+    stroke(ctx, 1.6, "#c9a45c");
+    ctx.beginPath();
+    ctx.moveTo(4.4, 11.6);
+    ctx.lineTo(2, 14);
+    stroke(ctx, 1.6, "#6b4426");
+  },
+  trophy(ctx) {
+    ctx.fillStyle = lin(ctx, 3, 0, 13, 0, ["#fff2a0", "#f3c35a", "#c98a1a"]);
+    ctx.beginPath();
+    ctx.moveTo(3.6, 2);
+    ctx.lineTo(12.4, 2);
+    ctx.quadraticCurveTo(12.4, 9, 8, 9.6);
+    ctx.quadraticCurveTo(3.6, 9, 3.6, 2);
+    ctx.fill();
+    stroke(ctx, 0.6);
+    ctx.beginPath();
+    ctx.arc(3.6, 4.6, 2, Math.PI * 0.5, Math.PI * 1.5);
+    ctx.moveTo(12.4, 2.6);
+    ctx.arc(12.4, 4.6, 2, -Math.PI * 0.5, Math.PI * 0.5);
+    stroke(ctx, 0.9, "#c98a1a");
+    ctx.fillStyle = "#c98a1a";
+    ctx.fillRect(7, 9.4, 2, 2.6);
+    roundRect(ctx, 4.6, 12, 6.8, 2.4, 0.5);
+    ctx.fill();
+    stroke(ctx, 0.5);
+  },
   star(ctx) {
     ctx.beginPath();
     for (let i = 0; i < 10; i++) {
@@ -605,7 +834,7 @@ export function icon(ctx, name, x, y, size = 16) {
 
 // A person with feet at (x, y), 12×16 units scaled by `scale`. shirt/shirt2: the job's colours.
 // hat: a straw hat (you). bob < 0 mid-stride swings the legs.
-export function person(ctx, x, y, { shirt = "#3a6ea5", shirt2 = "#2c5684", hat = false, scale = 2, bob = 0 } = {}) {
+export function person(ctx, x, y, { shirt = "#3a6ea5", shirt2 = "#2c5684", hat = false, scale = 2, bob = 0, bandana = false } = {}) {
   ctx.save();
   ctx.translate(x - 6 * scale, y - 16 * scale);
   ctx.scale(scale, scale);
@@ -660,6 +889,21 @@ export function person(ctx, x, y, { shirt = "#3a6ea5", shirt2 = "#2c5684", hat =
     stroke(ctx, 0.3);
     ctx.fillStyle = "#a8402e";
     ctx.fillRect(3.8, 1.4, 4.4, 0.7);
+  } else if (bandana) {
+    // A raider: red bandana over the head and a mask across the face
+    ctx.beginPath();
+    ctx.arc(6, 3.8, 2.8, Math.PI, Math.PI * 2);
+    ctx.closePath();
+    ctx.fillStyle = "#b8302a";
+    ctx.fill();
+    ctx.beginPath();
+    ctx.moveTo(8.4, 3);
+    ctx.lineTo(9.8, 2.2);
+    ctx.lineTo(9.6, 3.8);
+    ctx.closePath();
+    ctx.fill();
+    ctx.fillStyle = "#2a1a10";
+    ctx.fillRect(3.4, 4.9, 5.2, 1.4);
   } else {
     ctx.beginPath();
     ctx.arc(6, 3.6, 2.75, Math.PI * 1.05, Math.PI * 1.95);
@@ -813,6 +1057,11 @@ export function building(ctx, x, y, { w = 52, h = 40, roof = "#a8402e", wall = "
 
 // Ground for one season: soft blotches and tufts of grass, built once into a tile at 4× detail
 const GROUND = {
+  village: ["#7aa04e", "#6a9044", "#93b862", "#5d8a3c"],
+  forest: ["#4f7a3a", "#3f6a2e", "#5d8a44", "#2f5a24"],
+  mine: ["#8a8378", "#77706a", "#a09a8e", "#6a645c"],
+  farm: ["#8a6a3e", "#765832", "#9c7c4c", "#6a8a3a"],
+  raid: ["#5a5048", "#4a423a", "#6a6058", "#3a332c"],
   spring: ["#7aa04e", "#6a9044", "#93b862", "#5d8a3c"],
   summer: ["#8a9c48", "#77893e", "#a3b25a", "#6c7d36"],
   autumn: ["#a08a46", "#8a7036", "#b89a52", "#7e6230"],

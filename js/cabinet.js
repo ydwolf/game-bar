@@ -193,6 +193,7 @@ export function createCabinet({ onSwap }) {
   // One player: side 0 winning means the level was beaten and play goes on; side 1 means it's over
   function endSolo(w) {
     const r = set.round;
+    if (game.timeTrial) return endTimeTrial(r);
     if (w === 0) {
       phase = "roundEnd";
       phaseTime = 3.5;
@@ -210,7 +211,25 @@ export function createCabinet({ onSwap }) {
     ]);
   }
 
-  const bestKey = () => `gamebar.best.${game.id}`;
+  // A timed run: the score is the time, and lower is better
+  function endTimeTrial(r) {
+    phase = "over";
+    const time = r.finalTime;
+    const prev = readBest();
+    const record = !prev || time < prev;
+    if (record) writeBest(time);
+    renderSeats();
+    showOverlay(r.winTitle || "Done!", `${r.endReason}\n${record ? (prev ? `New record! (was ${clock(prev)})` : "Your first record!") : `Your record: ${clock(prev)}`}`, [
+      { label: "Play again", primary: true, onClick: newMatch },
+      { label: "Back to the bar", onClick: () => (location.hash = "#/") },
+    ]);
+  }
+  const clock = (s) => {
+    const tenths = Math.floor(s * 10);
+    return `${Math.floor(tenths / 600)}:${((tenths % 600) / 10).toFixed(1).padStart(4, "0")}`;
+  };
+
+  const bestKey = () => `gamebar.best.${game.id}${game.timeTrial ? ".time" : ""}`;
   function readBest() {
     try {
       return Number(localStorage.getItem(bestKey())) || 0;
@@ -404,7 +423,8 @@ export function createCabinet({ onSwap }) {
       const role = game.sides[side];
       const el = $(side === 0 ? "seat-a" : "seat-b");
       if (!role) return;
-      const pips = game.solo ? `${roundName()} · Best ${readBest()}` : "●".repeat(wins[side]) + "○".repeat(ROUNDS_TO_WIN - wins[side]);
+      const best = readBest();
+      const pips = game.timeTrial ? (best ? `Record ${clock(best)}` : "No record yet") : game.solo ? `${roundName()} · Best ${best}` : "●".repeat(wins[side]) + "○".repeat(ROUNDS_TO_WIN - wins[side]);
       el.innerHTML = "";
       const parts = [
         ["seat-emoji", role.emoji],

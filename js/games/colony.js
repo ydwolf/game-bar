@@ -1,418 +1,345 @@
-// Life in the Colony — Ready for Winter. A one-player arcade take on the colony sim in the
-// Notion design docs.
+// Life in the Colony — Arcade Demo. A timed one-player run built from the Notion design docs.
 //
-// Each round is a year: spring, summer and autumn, then the first snow. Before it falls the
-// colony must have enough people, a bed for each of them, and enough food and firewood to last
-// the winter. Make it and the village carries on into a harder year; miss and the game is over.
+// Collect three trophies as fast as you can; your time is your score.
+//   Resource Master — build the sculpture (10,000 wood and 10,000 stone at the Hall)
+//   Perfect Tomato  — breed a 10/10/10/10 seed at the seed bench
+//   Raid            — fight through the raid room with your soldiers
 //
-// The heart of it is the design doc's core choice: do it yourself, or delegate it. You can chop,
-// mine, farm, forge and build by hand, but hired villagers do it for you — once they have a
-// workplace and a tool. Each year switches on a little more of the design, so a new player
-// learns one thing at a time: gatherers → couriers and blacksmiths → builders → cooking,
-// hunger and food poisoning (and a healer to treat it).
-import { clamp, lerp, rand, chance, Clock } from "../util.js";
+// You can do every job yourself, but villagers are faster: hire them at the Tavern, give them
+// a building to work in (one per hut — build as many huts as you like), and better tools from
+// the Smithy multiply what they bring back. That's the engine that gets you to the trophies.
+//
+// The world is five zones you walk between: the village in the middle, the forest to the west,
+// the mine to the north, the farm to the south and the raid room to the east.
+//
+// Files: colony-config.js (every number, all placeholders), colony-raid.js (the fight),
+// colony-draw.js (everything on screen), colony-art.js (the shapes).
+import { clamp, rand } from "../util.js";
 import { sfx } from "../sound.js";
-import { sprite, icon, person, personIcon, building, groundPattern } from "./colony-art.js";
+import { CONFIG as K } from "./colony-config.js";
+import { startRaid, updateRaid } from "./colony-raid.js";
+import { draw } from "./colony-draw.js";
 
-const T = 36;
-const W = 20 * T;
-const H = 14 * T;
-const HALL = { x: 9.5 * T, y: 7 * T };
-const REACH = 34; // trees, rocks and crops
-const BUILDING_REACH = 50; // the Hall, buildings and lots are bigger
+export const W = 720; // the screen, in game units
+export const H = 504;
 
-const DAY = 20; // game seconds in a day (the colony runs at 0.75×, so ~27 real seconds)
-const DAYS = 9; // three seasons of three days, then the first snow
-const SEASONS = ["spring", "summer", "autumn"];
-
-const YIELD = 2; // wood or stone per minigame success, and per villager trip
-const CROP_YIELD = 3; // food per harvest
-const FIELD_COST = { log: 3 }; // plant a new field
-const REPAIR_COST = { log: 3, stone: 1 }; // fix a roof the winter caved in
-const HIRE_FEE = 3; // wood
-const TOOL_COST = { log: 1, stone: 1 };
-const TOOL_DURABILITY = 8;
-const HOUSE_COST = { log: 6, stone: 2 };
-const BEDS_PER_HOUSE = 2;
-const UPGRADE_COST = 6; // stone, to sharpen your own tools once a Blacksmith works the forge
-const SLOT_STACK = 20;
-const MAX_GATHERERS = 3; // of each gathering job
-const FOOD_EACH = 6; // food each villager needs for the winter
-const WOOD_EACH = 6; // firewood each villager needs for the winter
-const POISON_CHANCE = 0.35; // eating raw food from the Hall; cooked meals are always safe
-const SICK_DAYS = 2; // food poisoning lasts two days — unless a Healer treats it in seconds
-const FED_TIME = DAY; // a cooked meal makes a villager work faster for a day
-
-// What each job needs and where it works
-const JOBS = {
-  lumberjack: { name: "Lumberjack", building: "woodhut", tool: "axe", shirt: "#b0432f", shirt2: "#7a2a1e" },
-  farmer: { name: "Farmer", building: "farm", tool: "hoe", shirt: "#5f8a3c", shirt2: "#3e5e26" },
-  miner: { name: "Miner", building: "quarry", tool: "pickaxe", shirt: "#6c6c78", shirt2: "#4a4a54" },
-  courier: { name: "Courier", building: "post", tool: null, shirt: "#3a6ea5", shirt2: "#264c74" },
-  blacksmith: { name: "Blacksmith", building: "smithy", tool: null, shirt: "#4a3a30", shirt2: "#2e231c" },
-  builder: { name: "Builder", building: "yard", tool: "hammer", shirt: "#d0802f", shirt2: "#9a5a1c" },
-  cook: { name: "Cook", building: "kitchen", tool: null, shirt: "#e8e0d0", shirt2: "#b8ae9a" },
-  healer: { name: "Healer", building: "healer", tool: null, shirt: "#7a5aa8", shirt2: "#55407a" },
+export const ZONES = {
+  village: { name: "Village", w: 1440, h: 1008, zoom: 1.4 },
+  forest: { name: "Forest", w: 1440, h: 1008, zoom: 1.4 },
+  mine: { name: "Mine", w: 1440, h: 1008, zoom: 1.4 },
+  farm: { name: "Farm", w: 1440, h: 1008, zoom: 1.4 },
+  raid: { name: "Raid Room", w: 720, h: 428, zoom: 1 },
 };
-const GATHERERS = ["lumberjack", "farmer", "miner"];
-const JOB_ORDER = ["lumberjack", "farmer", "miner", "courier", "blacksmith", "builder", "cook", "healer"];
-const VISITOR_SHIRT = "#8a6a4a";
 
-const ITEM_WORD = { log: "wood", stone: "stone", food: "food", meal: "meals" };
+// Doorways between zones: walk into one and you arrive at the matching doorway on the other side
+export const EXITS = [
+  { zone: "village", x: 0, y: 444, w: 22, h: 120, to: "forest", arrive: { x: 1395, y: 504 } },
+  { zone: "village", x: 660, y: 0, w: 120, h: 22, to: "mine", arrive: { x: 720, y: 960 } },
+  { zone: "village", x: 660, y: 986, w: 120, h: 22, to: "farm", arrive: { x: 720, y: 50 } },
+  { zone: "village", x: 1418, y: 444, w: 22, h: 120, to: "raid", arrive: { x: 50, y: 214 } },
+  { zone: "forest", x: 1418, y: 444, w: 22, h: 120, to: "village", arrive: { x: 45, y: 504 } },
+  { zone: "mine", x: 660, y: 986, w: 120, h: 22, to: "village", arrive: { x: 720, y: 50 } },
+  { zone: "farm", x: 660, y: 0, w: 120, h: 22, to: "village", arrive: { x: 720, y: 960 } },
+  { zone: "raid", x: 0, y: 160, w: 22, h: 110, to: "village", arrive: { x: 1395, y: 504 } },
+];
+export const exitCenter = (e) => ({ x: e.x + e.w / 2, y: e.y + e.h / 2 });
 
-const BUILDINGS = {
-  tavern: { name: "Tavern", at: [8, 2.2], cost: { log: 4 }, year: 1, roof: "#a8402e", sign: "mug" },
-  woodhut: { name: "Woodchopper Hut", at: [5.6, 7], cost: { log: 3 }, year: 1, store: "log", roof: "#6e4529", sign: "axe" },
-  farm: { name: "Farm", at: [12.6, 9.6], cost: { log: 3 }, year: 1, store: "food", roof: "#c9953e", sign: "food" },
-  quarry: { name: "Quarry Hut", at: [12, 2.2], cost: { log: 3 }, year: 1, store: "stone", roof: "#6c6c78", sign: "pickaxe", stone: true },
-  smithy: { name: "Smithy", at: [12.6, 4.6], cost: { log: 3, stone: 2 }, year: 1, roof: "#3d3a3a", sign: "anvil", stone: true },
-  post: { name: "Courier Post", at: [6.4, 4.6], cost: { log: 4 }, year: 2, roof: "#3a6ea5", sign: "box" },
-  yard: { name: "Builder's Yard", at: [6.4, 9.6], cost: { log: 4, stone: 2 }, year: 3, roof: "#d0802f", sign: "hammer" },
-  kitchen: { name: "Kitchen", at: [8, 12.1], cost: { log: 4, stone: 2 }, year: 4, roof: "#b85a18", sign: "meal" },
-  healer: { name: "Healer's Hut", at: [11, 12.1], cost: { log: 4, stone: 2 }, year: 4, roof: "#e8e0d0", sign: "cross" },
+// What can be built, where, and who works there. `slots` is how many villagers a building
+// employs (huts take one each — build more huts for more output).
+export const BUILDINGS = {
+  hall: { name: "Hall", zone: "village", w: 84, h: 64, roof: "#7a2e22", stone: true },
+  tavern: { name: "Tavern", zone: "village", w: 64, h: 50, roof: "#a8402e", sign: "mug" },
+  sculpture: { name: "Sculpture plinth", zone: "village", w: 50, h: 50 },
+  bench: { name: "Seed Bench", zone: "farm", w: 56, h: 36 },
+  gate: { name: "Raid Gate", zone: "raid", w: 70, h: 90 },
+  post: { name: "Courier Post", zone: "village", w: 52, h: 42, roof: "#3a6ea5", sign: "box", job: "courier", slots: 1, cost: { log: 25 } },
+  smithy: { name: "Smithy", zone: "village", w: 56, h: 44, roof: "#3d3a3a", sign: "anvil", stone: true, job: "blacksmith", slots: 1, cost: { log: 30, stone: 10 } },
+  kitchen: { name: "Kitchen", zone: "village", w: 52, h: 42, roof: "#b85a18", sign: "meal", job: "cook", slots: 1, cost: { log: 30, stone: 10 } },
+  healer: { name: "Healer's Hut", zone: "village", w: 52, h: 42, roof: "#e8e0d0", sign: "cross", job: "healer", slots: 1, cost: { log: 30, stone: 10 } },
+  barracks: { name: "Barracks", zone: "village", w: 64, h: 48, roof: "#55402a", sign: "sword", stone: true, job: "soldier", slots: K.raid.soldiersPerBarracks, cost: { log: 60, stone: 30 } },
+  woodhut: { name: "Woodchopper Hut", zone: "forest", w: 50, h: 40, roof: "#6e4529", sign: "axe", job: "woodcutter", slots: 1, store: "log", cost: { log: 15 } },
+  quarry: { name: "Quarry Hut", zone: "mine", w: 50, h: 40, roof: "#6c6c78", sign: "pickaxe", stone: true, job: "miner", slots: 1, store: "stone", cost: { log: 20 } },
+  farmhouse: { name: "Farmhouse", zone: "farm", w: 54, h: 42, roof: "#c9953e", sign: "tomato", job: "farmer", slots: 1, store: "tomato", cost: { log: 25 } },
+  plot: { name: "Tomato Plot", zone: "farm", w: 34, h: 26, cost: { log: 5 } },
 };
-const HOUSE_SPOTS = [[8.4, 9.3], [9.6, 9.3], [10.8, 9.3], [8.4, 10.6], [9.6, 10.6], [10.8, 10.6], [4.6, 11.2], [14, 7.2]];
+const BUILDABLE = Object.keys(BUILDINGS).filter((k) => BUILDINGS[k].cost);
 
-// Each year asks for more people and more stores, and switches on more of the design
-function yearCfg(year) {
-  const jobs = ["lumberjack", "farmer", "miner"];
-  if (year >= 2) jobs.push("courier", "blacksmith");
-  if (year >= 3) jobs.push("builder");
-  if (year >= 4) jobs.push("cook", "healer");
-  const pop = Math.min(2 * year, 14);
-  // From year 5 the winters get harsher: each person needs more food and firewood
-  const harsh = Math.max(0, year - 4) * 2;
-  return { year, jobs, hunger: year >= 4, pop, each: { food: FOOD_EACH + harsh, wood: WOOD_EACH + harsh }, food: pop * (FOOD_EACH + harsh), wood: pop * (WOOD_EACH + harsh) };
-}
-
-const NEW_IN_YEAR = {
-  1: "Hire a Lumberjack, a Farmer and a Miner — they need tools from the Smithy.",
-  2: "New: winter can cave in roofs — repair them. Couriers haul piles; a Blacksmith makes tools.",
-  3: "New: a Builder repairs roofs, builds houses and plants new fields on their own.",
-  4: "New: hunger. Raw food can poison people, and the sick don't count for winter. Cooked meals are safe and speed workers up; a Healer cures in seconds.",
-  5: "From now on every winter is harsher: each person needs more food and firewood.",
+export const JOBS = {
+  woodcutter: { name: "Woodcutter", shirt: "#b0432f", shirt2: "#7a2a1e", tool: "axe" },
+  miner: { name: "Miner", shirt: "#6c6c78", shirt2: "#4a4a54", tool: "pickaxe" },
+  farmer: { name: "Farmer", shirt: "#5f8a3c", shirt2: "#3e5e26", tool: null },
+  courier: { name: "Courier", shirt: "#3a6ea5", shirt2: "#264c74", tool: null },
+  blacksmith: { name: "Blacksmith", shirt: "#4a3a30", shirt2: "#2e231c", tool: null },
+  cook: { name: "Cook", shirt: "#e8e0d0", shirt2: "#b8ae9a", tool: null },
+  healer: { name: "Healer", shirt: "#7a5aa8", shirt2: "#55407a", tool: null },
+  soldier: { name: "Soldier", shirt: "#8a2a2a", shirt2: "#5a1a1a", tool: "sword" },
 };
+export const IDLE_SHIRT = "#8a6a4a";
+
+// Tomato stats, each 1–10: what a meal made from it does
+export const STATS = ["walk", "fight", "heal", "work"];
+export const STAT_NAMES = { walk: "Walk speed", fight: "Fight", heal: "Healing", work: "Work speed" };
+export const seedKey = (s) => s.join("/");
+export const seedTotal = (s) => s.reduce((a, b) => a + b, 0);
 
 const dist = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
-const aTool = (tool) => (tool === "axe" ? "an axe" : `a ${tool}`);
-const tilePos = ([tx, ty]) => ({ x: tx * T, y: ty * T });
-const costText = (cost) => Object.entries(cost).map(([k, n]) => `${n} ${ITEM_WORD[k]}`).join(" + ");
+export const costText = (cost) => Object.entries(cost).map(([k, n]) => `${n} ${k === "log" ? "wood" : k}`).join(" + ");
 
-function scatter(n, x0, x1, y0, y1, minGap) {
+function scatter(n, x0, x1, y0, y1, minGap, avoid = []) {
   const pts = [];
-  for (let tries = 0; pts.length < n && tries < 2000; tries++) {
-    const p = { x: rand(x0, x1) * T, y: rand(y0, y1) * T };
-    if (pts.every((q) => dist(p, q) >= minGap * T)) pts.push(p);
+  for (let tries = 0; pts.length < n && tries < 6000; tries++) {
+    const p = { x: rand(x0, x1), y: rand(y0, y1) };
+    if (pts.every((q) => dist(p, q) >= minGap) && avoid.every((a) => dist(p, a) >= a.r)) pts.push(p);
   }
   return pts;
 }
 
-// ---------- the colony: land, stores, villagers and you ----------
+// A count of tomatoes by variety: { "7/5/6/4": 12, ... }
+const addTo = (bag, key, n) => (bag[key] = (bag[key] || 0) + n);
+export const countOf = (bag) => Object.values(bag).reduce((a, b) => a + b, 0);
+// Take n tomatoes, best varieties first (by `stat`, or overall)
+function takeBest(bag, n, stat = null) {
+  const keys = Object.keys(bag).filter((k) => bag[k] > 0);
+  const score = (k) => (stat === null ? seedTotal(k.split("/").map(Number)) : Number(k.split("/")[STATS.indexOf(stat)]));
+  keys.sort((a, b) => score(b) - score(a));
+  const out = [];
+  for (const k of keys) {
+    while (bag[k] > 0 && out.length < n) {
+      bag[k]--;
+      out.push(k);
+    }
+    if (!bag[k]) delete bag[k];
+  }
+  return out;
+}
+
+// ---------- the colony ----------
 
 function createColony(input) {
   const c = {
     input,
-    cfg: yearCfg(1),
-    stock: { log: 6, stone: 2, food: 0, meal: 0, axe: 0, pickaxe: 0, hoe: 0, hammer: 0 },
-    trees: scatter(18, 0.5, 3.6, 1.6, 12.6, 1.05).map((p) => ({ ...p, grown: true, regrow: 0, claimed: null })),
-    rocks: scatter(8, 15.4, 19.5, 1.6, 3.9, 1.0).map((p) => ({ ...p, left: 3, regrow: 0, claimed: null })),
-    // Four rows of four fields: the middle two rows are planted, the outer two are yours to plant
-    crops: Array.from({ length: 16 }, (_, i) => {
-      const row = Math.floor(i / 4);
-      return { x: (15.6 + (i % 4) * 1.15) * T, y: (9.4 + row * 1.3) * T, planted: row === 1 || row === 2, growth: rand(0.4, 1), claimed: null };
-    }),
-    buildings: {},
-    houses: HOUSE_SPOTS.map((s) => ({ ...tilePos(s), built: false, damaged: false })),
+    time: 0,
+    trophies: { resource: false, farm: false, raid: false },
+    hall: { log: 0, stone: 0, tomatoes: {} },
+    seeds: {}, // the seed bank: variety → count
+    buildings: [],
     villagers: [],
-    visitors: [],
-    visitT: 2,
-    player: { x: HALL.x, y: HALL.y + 1.15 * T, slots: [null, null, null, null], toolLevel: 1, face: 1, walk: 0 },
-    mg: null, // your current minigame
+    trees: [],
+    rocks: [],
+    player: {
+      zone: "village", x: 720, y: 640, face: { x: 0, y: 1 }, walk: 0,
+      bag: { log: 0, stone: 0, tomatoes: {} }, axe: 0, pickaxe: 0, sword: 0,
+    },
+    smithTarget: 1, // the tool tier the Blacksmith works toward
+    mg: null, // the gathering minigame
+    menu: null, // an open menu
+    placing: null, // a building being placed
     msg: null,
-    clock: 0, // seconds into the year
+    raid: null, // the fight, while it's on
+    fade: 0, // the fade when you change zone
+    hint: null,
     nextId: 1,
-    hintTarget: null,
-    view: null,
-    over: null, // "ready" | "late" once the year has ended
+    bestSeed: null,
   };
-  for (const [key, b] of Object.entries(BUILDINGS)) {
-    c.buildings[key] = { key, ...tilePos(b.at), vines: true, built: false, stock: 0 };
+  for (const s of K.startSeeds) addTo(c.seeds, seedKey(s), 3);
+  c.bestSeed = K.startSeeds.slice().sort((a, b) => seedTotal(b) - seedTotal(a))[0];
+
+  const say = (text, t = 2.6) => (c.msg = { text, t });
+  c.say = say;
+
+  // ---------- buildings ----------
+
+  function addBuilding(key, zone, x, y) {
+    const def = BUILDINGS[key];
+    const b = { id: c.nextId++, key, zone, x, y, w: def.w, h: def.h, workers: [], stock: { log: 0, stone: 0, tomatoes: {} } };
+    if (key === "plot") Object.assign(b, { seed: null, grow: 0, claimed: null });
+    c.buildings.push(b);
+    return b;
+  }
+  c.addBuilding = addBuilding;
+  c.find = (key) => c.buildings.find((b) => b.key === key);
+  c.all = (key) => c.buildings.filter((b) => b.key === key);
+
+  // The world starts with the Hall, the Tavern, the sculpture's plinth, the seed bench and the gate
+  addBuilding("hall", "village", 720, 470);
+  addBuilding("tavern", "village", 560, 330);
+  addBuilding("sculpture", "village", 900, 330);
+  addBuilding("bench", "farm", 560, 180);
+  addBuilding("gate", "raid", 360, 190);
+  for (let i = 0; i < 4; i++) {
+    const p = addBuilding("plot", "farm", 760 + (i % 2) * 48, 200 + Math.floor(i / 2) * 40);
+    p.seed = K.startSeeds[i].slice();
+    p.grow = rand(0.3, 0.8);
   }
 
-  const say = (text) => (c.msg = { text, t: 2.4 });
+  // Trees fill the forest and rocks the mine, with clear ground near the entrance for huts
+  c.trees = scatter(90, 60, 1380, 60, 960, 52, [{ x: 1420, y: 504, r: 260 }]).map((p) => ({ ...p, zone: "forest", grown: true, regrow: 0, claimed: null }));
+  c.rocks = scatter(55, 60, 1380, 60, 960, 62, [{ x: 720, y: 1000, r: 260 }]).map((p) => ({ ...p, zone: "mine", left: 3, regrow: 0, claimed: null }));
 
-  // ---------- reading the colony's state ----------
+  // ---------- reading the colony ----------
 
-  const built = (key) => c.buildings[key].built;
-  const unlocked = (key) => BUILDINGS[key].year <= c.cfg.year;
-  const villagersIn = (job) => c.villagers.filter((v) => v.job === job);
-  c.villagersIn = villagersIn;
-  c.unlocked = unlocked;
-  c.beds = () => c.houses.filter((h) => h.built && !h.damaged).length * BEDS_PER_HOUSE;
-  // Only as many house plots as this year needs (plus one), so houses get built as the village grows
-  c.housePlots = () => Math.min(HOUSE_SPOTS.length, Math.ceil(c.cfg.pop / BEDS_PER_HOUSE) + 1);
-  c.openHouse = () => c.houses.find((h, i) => !h.built && i < c.housePlots());
-  c.damagedHouse = () => c.houses.find((h) => h.damaged);
-  c.healthy = () => c.villagers.filter((v) => !v.sick).length;
+  const pl = c.player;
+  c.idle = () => c.villagers.filter((v) => !v.job);
+  c.openSlots = () => c.buildings.filter((b) => BUILDINGS[b.key].job && b.workers.length < BUILDINGS[b.key].slots);
+  c.villager = (id) => c.villagers.find((v) => v.id === id);
+  c.hireCost = () => ({ log: K.hireBase + K.hireStep * c.villagers.length });
+  c.soldiers = () => c.villagers.filter((v) => v.job === "soldier");
+  c.readySoldiers = () => c.soldiers().filter((v) => !v.wounded);
+  c.wounded = () => c.villagers.filter((v) => v.wounded);
+  c.tomatoes = () => countOf(c.hall.tomatoes);
+  c.meals = () => c.all("kitchen").reduce((n, b) => n + countOf(b.stock.tomatoes), 0);
+  c.farmerLevel = () => Math.max(1, ...c.villagers.filter((v) => v.job === "farmer").map((v) => v.level || 1));
 
-  function isWorking(v) {
-    if (v.sick) return false;
-    if (c.cfg.hunger && v.hunger >= 100) return false; // starving: too weak to work
-    const job = JOBS[v.job];
-    if (!built(job.building)) return false;
-    if (job.tool && !(v.tool && v.tool.dur > 0) && c.stock[job.tool] <= 0) return false;
-    return true;
-  }
-  c.working = (job) => c.villagers.some((v) => v.job === job && isWorking(v));
-  c.workingCount = (job) => c.villagers.filter((v) => v.job === job && isWorking(v)).length;
-
-  // What's stored in the village counts toward winter: the Hall, the huts' piles and the Kitchen.
-  // Your bag doesn't count until you drop it off — the HUD shows it as "+N" waiting to be stored.
-  c.total = (item) => {
-    let n = c.stock[item];
-    for (const b of Object.values(c.buildings)) if (BUILDINGS[b.key].store === item) n += b.stock;
-    if (item === "meal") n += c.buildings.kitchen.stock;
-    return n;
-  };
-  c.food = () => c.total("food") + c.total("meal");
-  c.wood = () => c.total("log");
-
-  // The four things winter asks for, each [have, need]
-  c.needs = () => ({
-    people: [c.healthy(), c.cfg.pop], // the sick don't count
-    beds: [c.beds(), Math.max(c.cfg.pop, c.villagers.length)],
-    food: [c.food(), Math.max(c.cfg.food, c.villagers.length * c.cfg.each.food)],
-    wood: [c.wood(), Math.max(c.cfg.wood, c.villagers.length * c.cfg.each.wood)],
-  });
-  c.ready = () => Object.values(c.needs()).every(([have, need]) => have >= need);
-  // Would dropping off your bag be enough?
-  c.readyWithBag = () => {
-    const n = c.needs();
-    return n.people[0] >= n.people[1] && n.beds[0] >= n.beds[1] &&
-      n.food[0] + bagCount("food") + bagCount("meal") >= n.food[1] && n.wood[0] + bagCount("log") >= n.wood[1];
-  };
-  c.missing = () => {
-    const n = c.needs();
-    const out = [];
-    if (n.people[0] < n.people[1]) out.push(`${n.people[1] - n.people[0]} more healthy ${n.people[1] - n.people[0] === 1 ? "person" : "people"}`);
-    if (n.beds[0] < n.beds[1]) out.push(`${n.beds[1] - n.beds[0]} more beds`);
-    if (n.food[0] < n.food[1]) out.push(`${n.food[1] - n.food[0]} more food`);
-    if (n.wood[0] < n.wood[1]) out.push(`${n.wood[1] - n.wood[0]} more wood`);
-    return out;
-  };
-
-  // Calendar
-  c.day = () => Math.min(DAYS, Math.floor(c.clock / DAY) + 1);
-  c.season = () => SEASONS[Math.min(2, Math.floor((c.day() - 1) / 3))];
-  c.daysLeft = () => Math.max(0, (DAYS * DAY - c.clock) / DAY);
-
-  // Which tool the colony is shortest of: workers without one, minus spares at the Hall
-  const toolsInPlay = () => [...new Set(c.cfg.jobs.map((j) => JOBS[j].tool).filter(Boolean))];
-  c.toolNeeded = () => {
-    let best = null;
-    let bestGap = 0;
-    for (const tool of toolsInPlay()) {
-      const job = Object.keys(JOBS).find((j) => JOBS[j].tool === tool);
-      const lacking = villagersIn(job).filter((v) => !(v.tool && v.tool.dur > 0)).length;
-      const gap = lacking - c.stock[tool];
-      if (gap > bestGap) {
-        bestGap = gap;
-        best = tool;
-      }
-    }
-    return best;
-  };
-
-  // The next job the Tavern can fill: one of each job first, then extra gatherers
-  c.openJob = () => {
-    for (const job of JOB_ORDER) {
-      if (c.cfg.jobs.includes(job) && built(JOBS[job].building) && villagersIn(job).length === 0) return job;
-    }
-    let best = null;
-    for (const job of GATHERERS) {
-      if (!built(JOBS[job].building)) continue;
-      const n = villagersIn(job).length;
-      if (n < MAX_GATHERERS && (!best || n < villagersIn(best).length)) best = job;
-    }
-    return best;
-  };
-
-  // ---------- your bag: four slots of up to twenty ----------
-
-  const bagCount = (item) => c.player.slots.reduce((n, s) => n + (s && s.item === item ? s.n : 0), 0);
-  c.bagCount = bagCount;
-  c.bagTotal = () => c.player.slots.reduce((n, s) => n + (s ? s.n : 0), 0);
-  function bagAdd(item, n) {
-    let left = n;
-    for (const s of c.player.slots) if (s && s.item === item && s.n < SLOT_STACK && left) {
-      const put = Math.min(left, SLOT_STACK - s.n);
-      s.n += put;
-      left -= put;
-    }
-    for (let i = 0; i < 4 && left; i++) if (!c.player.slots[i]) {
-      const put = Math.min(left, SLOT_STACK);
-      c.player.slots[i] = { item, n: put };
-      left -= put;
-    }
-    return n - left;
-  }
-  c.bagHasRoom = (item) => c.player.slots.some((s) => !s || (s.item === item && s.n < SLOT_STACK));
-
-  const canAfford = (cost) => Object.entries(cost).every(([k, n]) => c.stock[k] >= n);
-  const pay = (cost) => Object.entries(cost).forEach(([k, n]) => (c.stock[k] -= n));
-  c.canAfford = canAfford;
-
-  // You pay from your bag first and the Hall for the rest — no trip to the Hall needed
-  const canPay = (cost) => Object.entries(cost).every(([k, n]) => c.stock[k] + bagCount(k) >= n);
-  c.canPay = canPay;
-  function payBoth(cost) {
+  // Paying: from your bag first, then the Hall
+  const have = (k) => pl.bag[k] + c.hall[k];
+  c.have = have;
+  c.canPay = (cost) => Object.entries(cost).every(([k, n]) => have(k) >= n);
+  function pay(cost) {
     for (const [k, n] of Object.entries(cost)) {
-      let left = n;
-      for (let i = 0; i < 4 && left; i++) {
-        const sl = c.player.slots[i];
-        if (!sl || sl.item !== k) continue;
-        const take = Math.min(left, sl.n);
-        sl.n -= take;
-        left -= take;
-        if (!sl.n) c.player.slots[i] = null;
-      }
-      c.stock[k] -= left;
+      const fromBag = Math.min(pl.bag[k], n);
+      pl.bag[k] -= fromBag;
+      c.hall[k] -= n - fromBag;
     }
   }
-  const haveText = (cost) => Object.keys(cost).map((k) => `${c.stock[k] + bagCount(k)} ${ITEM_WORD[k]}`).join(" + ");
+  c.pay = pay;
+  const hallPays = (cost) => Object.entries(cost).every(([k, n]) => c.hall[k] >= n);
+  const hallPay = (cost) => Object.entries(cost).forEach(([k, n]) => (c.hall[k] -= n));
+  const scaled = (cost, f) => Object.fromEntries(Object.entries(cost).map(([k, n]) => [k, Math.ceil(n * f)]));
 
-  // Winter uses up stores: Kitchen meals and the Hall first, then the huts' piles
-  c.consume = (item, n) => {
-    let left = n;
-    const take = (have) => {
-      const t = Math.min(have, left);
-      left -= t;
-      return have - t;
-    };
-    if (item === "meal") c.buildings.kitchen.stock = take(c.buildings.kitchen.stock);
-    c.stock[item] = take(c.stock[item]);
-    for (const b of Object.values(c.buildings)) if (BUILDINGS[b.key].store === item) b.stock = take(b.stock);
-    return n - left;
-  };
-
-  // ---------- what you're standing at ----------
+  // ---------- what you're next to ----------
 
   function interactables() {
-    const list = [{ kind: "hall", obj: HALL, x: HALL.x, y: HALL.y, reach: BUILDING_REACH }];
-    for (const t of c.trees) if (t.grown) list.push({ kind: "tree", obj: t, x: t.x, y: t.y - 10 });
-    for (const k of c.rocks) if (k.left > 0) list.push({ kind: "rock", obj: k, x: k.x, y: k.y - 8 });
-    for (const p of c.crops) {
-      if (!p.planted) list.push({ kind: "field", obj: p, x: p.x, y: p.y, reach: 22 });
-      else if (p.growth >= 1) list.push({ kind: "crop", obj: p, x: p.x, y: p.y });
-    }
-    for (const b of Object.values(c.buildings)) if (unlocked(b.key)) list.push({ kind: b.built ? "building" : "lot", obj: b, x: b.x, y: b.y, reach: BUILDING_REACH });
-    c.houses.forEach((h, i) => {
-      if (h.damaged || (!h.built && i < c.housePlots())) list.push({ kind: "house", obj: h, x: h.x, y: h.y, reach: 26 });
-    });
+    const z = pl.zone;
+    const list = [];
+    for (const b of c.buildings) if (b.zone === z) list.push({ kind: b.key === "plot" ? "plot" : "building", obj: b, x: b.x, y: b.y, reach: Math.max(b.w, b.h) / 2 + 22 });
+    if (z === "forest") for (const t of c.trees) if (t.grown) list.push({ kind: "tree", obj: t, x: t.x, y: t.y - 12, reach: 30 });
+    if (z === "mine") for (const k of c.rocks) if (k.left > 0) list.push({ kind: "rock", obj: k, x: k.x, y: k.y - 8, reach: 32 });
     return list;
   }
-  c.targetAt = (pos) => {
+  c.targetAt = () => {
     let best = null;
     for (const it of interactables()) {
-      // Compare by how far inside its reach you are, so a big building does not drown out a tree
-      const d = Math.hypot(it.x - pos.x, it.y - pos.y) - (it.reach || REACH);
+      const d = Math.hypot(it.x - pl.x, it.y - pl.y) - it.reach;
       if (d <= 0 && (!best || d < best.d)) best = { ...it, d };
     }
     return best;
   };
 
-  function startMinigame(kind, target) {
-    const speed = 0.8 + 0.05 * Math.min(6, c.cfg.year - 1);
-    c.mg = { kind, target, phase: 0, dir: 1, speed, cool: 0, zoneC: rand(0.25, 0.75), zoneW: 0.26 + 0.07 * (c.player.toolLevel - 1) };
-  }
-
-  function act() {
-    const it = c.targetAt(c.player);
-    if (!it) return say("Nothing to do here");
+  // What Space does here — shown above your head
+  c.promptFor = (it) => {
+    if (!it) return null;
     const { kind, obj } = it;
-    if (kind === "tree" || kind === "rock" || kind === "crop") {
-      const item = { tree: "log", rock: "stone", crop: "food" }[kind];
-      if (!c.bagHasRoom(item)) return say("Bag full — empty it at the Hall");
-      return startMinigame(kind, obj);
-    }
-    if (kind === "hall") {
-      if (c.ready()) {
-        c.over = "ready";
-        return;
-      }
-      let n = 0;
-      c.player.slots.forEach((s, i) => {
-        if (!s) return;
-        c.stock[s.item] += s.n;
-        n += s.n;
-        c.player.slots[i] = null;
-      });
-      if (!n) return say("The Hall: your stockpile");
-      sfx("place");
-      const need = c.needs();
-      return say(`Stored ${n} — winter food ${need.food[0]}/${need.food[1]}, wood ${need.wood[0]}/${need.wood[1]}`);
-    }
-    if (kind === "lot") {
-      const def = BUILDINGS[obj.key];
-      if (obj.vines) {
-        obj.vines = false;
-        sfx("chop");
-        return say(`Cleared the ${def.name} lot — now build it here`);
-      }
-      if (!canPay(def.cost)) return fail(`The ${def.name} needs ${costText(def.cost)} — you have ${haveText(def.cost)}`);
-      payBoth(def.cost);
-      obj.built = true;
-      sfx("place");
-      return say(`Built the ${def.name} (paid from your bag, then the Hall)`);
-    }
-    if (kind === "field") {
-      if (!canPay(FIELD_COST)) return fail(`A new field needs ${costText(FIELD_COST)}`);
-      payBoth(FIELD_COST);
-      obj.planted = true;
-      obj.growth = 0;
-      sfx("place");
-      return say("Planted a new field — more food every harvest");
-    }
-    if (kind === "house" && obj.damaged) {
-      if (!canPay(REPAIR_COST)) return fail(`Repairing the roof needs ${costText(REPAIR_COST)}`);
-      payBoth(REPAIR_COST);
-      obj.damaged = false;
-      sfx("place");
-      return say(`Repaired the roof: ${BEDS_PER_HOUSE} beds back`);
-    }
-    if (kind === "house") {
-      if (!canPay(HOUSE_COST)) return fail(`A house needs ${costText(HOUSE_COST)} — you have ${haveText(HOUSE_COST)}`);
-      payBoth(HOUSE_COST);
-      obj.built = true;
-      sfx("place");
-      return say(`Built a house: ${BEDS_PER_HOUSE} more beds`);
+    if (kind === "tree") return `Space: chop (+${K.tiers[pl.axe].yield} wood)`;
+    if (kind === "rock") return `Space: mine (+${K.tiers[pl.pickaxe].yield} stone)`;
+    if (kind === "plot") {
+      if (!obj.seed) return "Space: plant a seed";
+      if (obj.grow >= 1) return `Space: harvest ${seedKey(obj.seed)} tomatoes`;
+      return `Growing ${seedKey(obj.seed)} — ${Math.floor(obj.grow * 100)}% (Space to replant)`;
     }
     const def = BUILDINGS[obj.key];
+    if (obj.key === "hall") {
+      const n = pl.bag.log + pl.bag.stone + countOf(pl.bag.tomatoes);
+      return n ? `Space: store your bag at the Hall (${n})` : "The Hall: everything your couriers bring";
+    }
+    if (obj.key === "tavern") {
+      if (c.idle().length >= c.openSlots().length) return "Tavern: build a workplace with an empty job first";
+      return `Space: hire a villager (${costText(c.hireCost())})`;
+    }
+    if (obj.key === "sculpture") {
+      if (c.trophies.resource) return "The Resource Master sculpture — trophy won";
+      return c.hall.log >= K.sculpture.log && c.hall.stone >= K.sculpture.stone ? "Space: build the sculpture!" : `Sculpture: ${K.sculpture.log} wood + ${K.sculpture.stone} stone in the Hall`;
+    }
+    if (obj.key === "bench") return "Space: cross two seeds";
+    if (obj.key === "gate") {
+      if (c.trophies.raid) return "The raid room is cleared";
+      return `Space: start the raid (${c.readySoldiers().length} soldiers ready)`;
+    }
+    if (obj.key === "smithy") return "Space: the forge";
+    if (def.job && obj.workers.length < def.slots && c.idle().length) return `Space: put an idle villager to work as ${JOBS[def.job].name}`;
+    if (def.store) {
+      const n = def.store === "tomato" ? countOf(obj.stock.tomatoes) : obj.stock[def.store];
+      if (n) return `Space: pick up ${n} ${def.store === "log" ? "wood" : def.store === "stone" ? "stone" : "tomatoes"}`;
+    }
+    if (def.job && obj.workers.length < def.slots) return `${def.name}: empty job — hire at the Tavern`;
+    return def.name;
+  };
+
+  // ---------- your actions ----------
+
+  function act() {
+    const it = c.targetAt();
+    if (!it) return;
+    const { kind, obj } = it;
+    if (kind === "tree" || kind === "rock") {
+      c.mg = { kind, target: obj, phase: 0, dir: 1, cool: 0, zoneC: rand(0.25, 0.75), zoneW: 0.3 };
+      return;
+    }
+    if (kind === "plot") return actPlot(obj);
+    const def = BUILDINGS[obj.key];
+    if (obj.key === "hall") return storeBag();
     if (obj.key === "tavern") return hire();
-    if (def.store && obj.stock > 0) {
-      const took = bagAdd(def.store, obj.stock);
-      obj.stock -= took;
-      if (took) sfx("pickup");
-      return say(took ? `Picked up ${took} ${ITEM_WORD[def.store]}` : "Bag full");
-    }
-    if (obj.key === "smithy") {
-      if (c.working("blacksmith") && c.player.toolLevel < 3 && c.stock.stone >= UPGRADE_COST) {
-        c.stock.stone -= UPGRADE_COST;
-        c.player.toolLevel++;
-        sfx("power");
-        return say(`Your own tools are now level ${c.player.toolLevel} — a wider green zone`);
-      }
-      if (c.working("blacksmith")) return say("The Blacksmith has the forge");
-      if (!c.toolNeeded()) return say("Nobody needs a tool right now");
-      if (!canPay(TOOL_COST)) return fail(`A tool needs ${costText(TOOL_COST)}`);
-      return startMinigame("forge", obj);
-    }
-    if (obj.key === "kitchen") {
-      if (c.working("cook")) return say("The Cook has the kitchen");
-      if (!canPay({ food: 2 })) return fail("Cooking needs 2 food");
-      return startMinigame("cook", obj);
-    }
+    if (obj.key === "sculpture") return buildSculpture();
+    if (obj.key === "bench") return openBench();
+    if (obj.key === "smithy") return openForge();
+    if (obj.key === "gate") return beginRaid();
+    if (def.job && obj.workers.length < def.slots && c.idle().length) return assign(obj);
+    if (def.store) return pickUp(obj);
+    if (def.job && obj.workers.length < def.slots) return say("Empty job here — hire a villager at the Tavern");
     say(def.name);
+  }
+
+  function storeBag() {
+    const n = pl.bag.log + pl.bag.stone + countOf(pl.bag.tomatoes);
+    if (!n) return say("The Hall: everything your couriers bring");
+    c.hall.log += pl.bag.log;
+    c.hall.stone += pl.bag.stone;
+    for (const [k, v] of Object.entries(pl.bag.tomatoes)) addTo(c.hall.tomatoes, k, v);
+    pl.bag = { log: 0, stone: 0, tomatoes: {} };
+    sfx("place");
+    say(`Stored ${n} at the Hall`);
+  }
+
+  function pickUp(b) {
+    const def = BUILDINGS[b.key];
+    if (def.store === "tomato") {
+      const n = countOf(b.stock.tomatoes);
+      for (const [k, v] of Object.entries(b.stock.tomatoes)) addTo(pl.bag.tomatoes, k, v);
+      b.stock.tomatoes = {};
+      if (n) sfx("pickup");
+      return say(n ? `Picked up ${n} tomatoes` : "Nothing here yet");
+    }
+    const room = K.bagLimit - pl.bag[def.store];
+    const n = Math.min(room, b.stock[def.store]);
+    if (!n) return say(room ? "Nothing here yet" : "Your bag is full — store it at the Hall");
+    b.stock[def.store] -= n;
+    pl.bag[def.store] += n;
+    sfx("pickup");
+    say(`Picked up ${n} ${def.store === "log" ? "wood" : "stone"}`);
+  }
+
+  function hire() {
+    if (c.idle().length >= c.openSlots().length) return fail("Build a workplace with an empty job first (Shift to build)");
+    const cost = c.hireCost();
+    if (!c.canPay(cost)) return fail(`Hiring costs ${costText(cost)}`);
+    pay(cost);
+    const t = c.find("tavern");
+    c.villagers.push({
+      id: c.nextId++, zone: "village", x: t.x + rand(-20, 20), y: t.y + 40, job: null, building: null,
+      tool: 0, task: [], carry: null, buff: null, mealT: rand(10, K.mealEvery), wounded: false, healT: 0, level: 1, xp: 0, walk: 0,
+    });
+    sfx("coin");
+    say("Hired a villager — put them to work at an empty job (Space at the building)");
+  }
+
+  function assign(b) {
+    const v = c.idle()[0];
+    if (!v) return;
+    v.job = BUILDINGS[b.key].job;
+    v.building = b.id;
+    v.task = [];
+    b.workers.push(v.id);
+    sfx("place");
+    say(`Your villager is now a ${JOBS[v.job].name}`);
   }
 
   function fail(text) {
@@ -420,394 +347,502 @@ function createColony(input) {
     say(text);
   }
 
-  function hire() {
-    const tavern = c.buildings.tavern;
-    const job = c.openJob();
-    if (!job) return fail("No open jobs — build a workplace first");
-    if (!c.visitors.length) return say("Nobody's visiting right now — they'll come");
-    if (!canPay({ log: HIRE_FEE })) return fail(`Hiring costs ${HIRE_FEE} wood`);
-    payBoth({ log: HIRE_FEE });
-    c.visitors.shift();
-    c.villagers.push({
-      id: c.nextId++, job, x: tavern.x, y: tavern.y + 24,
-      task: [], tool: null, carry: null, hunger: 0, fed: 0, sick: false, recover: 0, blocked: null, walk: 0,
-    });
-    sfx("coin");
-    say(`Hired a ${JOBS[job].name}`);
+  function buildSculpture() {
+    if (c.trophies.resource) return say("The Resource Master trophy is yours");
+    if (c.hall.log < K.sculpture.log || c.hall.stone < K.sculpture.stone) {
+      return fail(`The sculpture needs ${K.sculpture.log} wood and ${K.sculpture.stone} stone in the Hall (you have ${c.hall.log} and ${c.hall.stone})`);
+    }
+    hallPay(K.sculpture);
+    trophy("resource", "Resource Master! The sculpture stands.");
   }
 
-  function finishMinigame() {
-    const { kind, target } = c.mg;
-    c.mg = null;
-    if (kind === "tree" && target.grown) {
-      target.grown = false;
-      target.regrow = 8;
-      bagAdd("log", YIELD);
-      sfx("chop");
-    } else if (kind === "rock" && target.left > 0) {
-      target.left--;
-      if (!target.left) target.regrow = 10;
-      bagAdd("stone", YIELD);
-      sfx("thud");
-    } else if (kind === "crop" && target.growth >= 1) {
-      target.growth = 0;
-      bagAdd("food", CROP_YIELD);
+  function trophy(key, text) {
+    if (c.trophies[key]) return;
+    c.trophies[key] = true;
+    sfx("win");
+    say(text, 4);
+  }
+  c.trophy = trophy;
+
+  // ---------- farming and breeding ----------
+
+  function actPlot(p) {
+    if (p.seed && p.grow >= 1) return harvest(p, pl.bag.tomatoes, 1);
+    openMenu(
+      p.seed ? "Replant with" : "Plant a seed",
+      Object.entries(c.seeds)
+        .filter(([, n]) => n > 0)
+        .sort((a, b) => seedTotal(b[0].split("/").map(Number)) - seedTotal(a[0].split("/").map(Number)))
+        .map(([k, n]) => ({
+          label: k,
+          detail: `${n} seed${n > 1 ? "s" : ""}`,
+          seed: k.split("/").map(Number),
+          run: () => {
+            c.seeds[k]--;
+            p.seed = k.split("/").map(Number);
+            p.grow = 0;
+            sfx("place");
+            say(`Planted ${k}`);
+          },
+        })),
+      "No seeds — harvest a plant or cross seeds at the bench"
+    );
+  }
+
+  // A ripe plant gives tomatoes (more with a skilled farmer) and its own seeds, then regrows
+  function harvest(p, into, level) {
+    const key = seedKey(p.seed);
+    const n = 1 + Math.floor(level / 2);
+    addTo(into, key, n);
+    addTo(c.seeds, key, K.seedsPerHarvest);
+    p.grow = 0;
+    if (into === pl.bag.tomatoes) {
       sfx("pickup");
-    } else if (kind === "forge") {
-      const tool = c.toolNeeded();
-      if (tool && canPay(TOOL_COST)) {
-        payBoth(TOOL_COST);
-        c.stock[tool]++;
-        sfx("brick");
-        say(`Forged ${aTool(tool)} — it's waiting at the Hall`);
-      }
-    } else if (kind === "cook" && canPay({ food: 2 })) {
-      payBoth({ food: 2 });
-      target.stock += 3;
-      sfx("score");
-      say("Cooked 3 safe meals from 2 food");
+      say(`+${n} tomatoes and ${K.seedsPerHarvest} ${key} seeds`);
+    }
+    return n;
+  }
+
+  function openBench() {
+    const varieties = Object.entries(c.seeds).filter(([, n]) => n > 0);
+    if (varieties.length === 0) return fail("No seeds to cross — harvest a plant first");
+    const pick = (title, exclude, then) =>
+      openMenu(
+        title,
+        varieties
+          .filter(([k, n]) => k !== exclude || n > 1)
+          .sort((a, b) => seedTotal(b[0].split("/").map(Number)) - seedTotal(a[0].split("/").map(Number)))
+          .map(([k, n]) => ({ label: k, detail: `${n} seed${n > 1 ? "s" : ""}`, seed: k.split("/").map(Number), run: () => then(k) })),
+        "Not enough seeds"
+      );
+    pick("Cross seeds: first parent", null, (a) => pick(`Cross ${a} with…`, a, (b) => cross(a, b)));
+  }
+
+  // Each stat comes from one parent; then one random stat shifts by one, up or down
+  function cross(a, b) {
+    const pa = a.split("/").map(Number);
+    const pb = b.split("/").map(Number);
+    if ((c.seeds[a] || 0) < 1 || (c.seeds[b] || 0) < (a === b ? 2 : 1)) return fail("Not enough seeds");
+    c.seeds[a]--;
+    c.seeds[b]--;
+    const child = pa.map((v, i) => (Math.random() < 0.5 ? v : pb[i]));
+    const i = Math.floor(Math.random() * 4);
+    child[i] = clamp(child[i] + (Math.random() < 0.5 ? 1 : -1), 1, 10);
+    const key = seedKey(child);
+    addTo(c.seeds, key, 1);
+    if (seedTotal(child) > seedTotal(c.bestSeed)) c.bestSeed = child;
+    sfx("score");
+    say(`New seed: ${key} (${STAT_NAMES[STATS[i]]} ${child[i] > Math.max(pa[i], pb[i]) ? "went up" : "changed"}) — plant it to get more`, 3.5);
+    if (child.every((v) => v >= K.perfectSeed)) trophy("farm", "Perfect Tomato! 10/10/10/10 — Farming trophy won");
+  }
+  c.cross = cross;
+
+  // ---------- the forge ----------
+
+  function openForge() {
+    const items = [];
+    for (const tool of ["axe", "pickaxe", "sword"]) {
+      const tier = pl[tool];
+      const next = K.tiers[tier + 1];
+      const label = tool === "axe" ? "Your axe" : tool === "pickaxe" ? "Your pickaxe" : "Your sword";
+      items.push(
+        next
+          ? {
+              label: `${label} → ${next.name}`,
+              detail: `${costText(scaled(next.cost, K.playerCraftMarkup))} · ${tool === "sword" ? `×${next.sword} damage` : `${next.yield} per ${tool === "axe" ? "tree" : "rock"}`}`,
+              ok: c.canPay(scaled(next.cost, K.playerCraftMarkup)),
+              run: () => {
+                pay(scaled(next.cost, K.playerCraftMarkup));
+                pl[tool]++;
+                sfx("brick");
+                say(`${label} is now ${next.name}`);
+              },
+            }
+          : { label: `${label}: ${K.tiers[tier].name} (best)`, detail: "", ok: false, run: () => {} }
+      );
+    }
+    // Villagers' tools: make one yourself, or set what the Blacksmith works toward
+    const needy = toolUsers().sort((a, b) => a.tool - b.tool)[0];
+    if (needy && K.tiers[needy.tool + 1]) {
+      const next = K.tiers[needy.tool + 1];
+      const cost = scaled(next.cost, K.playerCraftMarkup);
+      items.push({
+        label: `Make a ${next.name} ${JOBS[needy.job].tool} for your ${JOBS[needy.job].name}`,
+        detail: costText(cost),
+        ok: c.canPay(cost),
+        run: () => {
+          pay(cost);
+          needy.tool++;
+          sfx("brick");
+          say(`Your ${JOBS[needy.job].name} now has a ${next.name} ${JOBS[needy.job].tool}`);
+        },
+      });
+    }
+    for (let t = 1; t < K.tiers.length; t++) {
+      items.push({
+        label: `Blacksmith target: ${K.tiers[t].name} tools${c.smithTarget === t ? "  (set)" : ""}`,
+        detail: `${costText(K.tiers[t].cost)} each, from the Hall`,
+        ok: true,
+        run: () => {
+          c.smithTarget = t;
+          say(`Your Blacksmith will upgrade everyone to ${K.tiers[t].name} tools`);
+        },
+      });
+    }
+    openMenu("The forge", items);
+  }
+
+  const toolUsers = () => c.villagers.filter((v) => v.job && JOBS[v.job].tool);
+
+  // ---------- menus ----------
+
+  function openMenu(title, items, empty = "Nothing here") {
+    if (!items.length) return fail(empty);
+    c.menu = { title, items: items.map((it) => ({ ok: true, ...it })), sel: 0 };
+    sfx("blip");
+  }
+
+  function openBuildMenu() {
+    const items = BUILDABLE.filter((k) => BUILDINGS[k].zone === pl.zone).map((k) => {
+      const def = BUILDINGS[k];
+      return {
+        label: def.name,
+        detail: `${costText(def.cost)}${def.job ? ` · ${def.slots} ${JOBS[def.job].name}${def.slots > 1 ? "s" : ""}` : ""}`,
+        ok: c.canPay(def.cost),
+        run: () => (c.placing = { key: k }),
+      };
+    });
+    const where = { village: "village", forest: "forest", mine: "mine", farm: "farm", raid: "raid room" }[pl.zone];
+    openMenu(`Build in the ${where}`, items, "Nothing to build here — try the village, forest, mine or farm");
+  }
+
+  function runMenu(input) {
+    const m = c.menu;
+    if (input.pressed.up) m.sel = (m.sel + m.items.length - 1) % m.items.length;
+    if (input.pressed.down) m.sel = (m.sel + 1) % m.items.length;
+    if (input.pressed.action2) {
+      c.menu = null;
+      return;
+    }
+    if (input.pressed.action) {
+      const it = m.items[m.sel];
+      if (!it.ok) return fail("You can't afford that yet");
+      c.menu = null;
+      it.run();
     }
   }
 
-  // ---------- villagers: decide what to do next, then carry it out ----------
-  // Deciding is the ordered list in decide(); doing is the task queue of walk/wait steps,
-  // which any interruption can safely throw away.
+  // ---------- placing a building ----------
 
-  const walk = (p) => ({ type: "walk", x: p.x, y: p.y });
-  const wait = (t, done) => ({ type: "wait", t, done });
-  const idle = () => [walk({ x: HALL.x + rand(-40, 40), y: HALL.y + rand(34, 60) }), wait(1)];
+  c.ghost = () => {
+    if (!c.placing) return null;
+    const def = BUILDINGS[c.placing.key];
+    const x = pl.x + pl.face.x * (def.w / 2 + 26);
+    const y = pl.y + pl.face.y * (def.h / 2 + 26) - (pl.face.y < 0 ? 10 : 0);
+    return { x, y, w: def.w, h: def.h, ok: placeOk(x, y, def), def };
+  };
 
-  function release(v) {
-    for (const list of [c.trees, c.rocks, c.crops]) for (const n of list) if (n.claimed === v) n.claimed = null;
-    v.task = [];
-    v.carry = null;
+  function placeOk(x, y, def) {
+    const z = ZONES[pl.zone];
+    if (x - def.w / 2 < 30 || x + def.w / 2 > z.w - 30 || y - def.h / 2 < 40 || y + def.h / 2 > z.h - 30) return false;
+    for (const b of c.buildings) {
+      if (b.zone !== pl.zone) continue;
+      if (Math.abs(b.x - x) < (b.w + def.w) / 2 + 8 && Math.abs(b.y - y) < (b.h + def.h) / 2 + 8) return false;
+    }
+    const nodes = pl.zone === "forest" ? c.trees : pl.zone === "mine" ? c.rocks : [];
+    for (const n of nodes) if (Math.abs(n.x - x) < def.w / 2 + 14 && Math.abs(n.y - y) < def.h / 2 + 18) return false;
+    for (const e of EXITS) if (e.zone === pl.zone && x + def.w / 2 > e.x - 40 && x - def.w / 2 < e.x + e.w + 40 && y + def.h / 2 > e.y - 40 && y - def.h / 2 < e.y + e.h + 40) return false;
+    return true;
   }
 
-  const nearestFree = (list, from, ok) => {
+  function runPlacing(input) {
+    if (input.pressed.action2) {
+      c.placing = null;
+      return say("Cancelled");
+    }
+    const g = c.ghost();
+    if (!g.ok) return fail("Doesn't fit here — move somewhere clear");
+    if (!c.canPay(g.def.cost)) return fail(`Needs ${costText(g.def.cost)}`);
+    pay(g.def.cost);
+    addBuilding(c.placing.key, pl.zone, g.x, g.y);
+    sfx("place");
+    say(`Built a ${g.def.name}${g.def.job ? " — hire someone at the Tavern to work it" : ""}`);
+    c.placing = null;
+  }
+
+  // ---------- the raid ----------
+
+  function beginRaid() {
+    if (c.trophies.raid) return say("The raid room is cleared");
+    c.raid = startRaid(c);
+    sfx("power");
+  }
+
+  // ---------- villagers ----------
+  // Each villager runs a queue of steps: walk somewhere (in any zone — they route through the
+  // village) or wait and then do something. When the queue empties they decide what's next.
+
+  const walkTo = (zone, x, y) => ({ type: "walk", zone, x, y });
+  const wait = (t, done) => ({ type: "wait", t, done });
+  const home = (v) => c.buildings.find((b) => b.id === v.building);
+  const workMult = (v) => 1 + (v.buff ? v.buff.stats[3] * K.statBuff : 0);
+  const walkMult = (v) => 1 + (v.buff ? v.buff.stats[0] * K.statBuff : 0);
+  c.workMult = workMult;
+
+  function idleAt(b) {
+    return [walkTo(b.zone, b.x + rand(-30, 30), b.y + b.h / 2 + rand(14, 40)), wait(1.5)];
+  }
+
+  function release(v) {
+    for (const n of [...c.trees, ...c.rocks]) if (n.claimed === v) n.claimed = null;
+    for (const p of c.all("plot")) if (p.claimed === v) p.claimed = null;
+    v.task = [];
+  }
+
+  function nearestFree(list, from, ok) {
     let best = null;
     for (const n of list) if (!n.claimed && ok(n) && (!best || dist(n, from) < dist(best, from))) best = n;
     return best;
+  }
+
+  const WORK = {
+    woodcutter: (v, b) => gatherTask(v, b, c.trees, (n) => n.grown, (n) => { n.grown = false; n.regrow = K.treeRegrow; }, "log"),
+    miner: (v, b) => gatherTask(v, b, c.rocks, (n) => n.left > 0, (n) => { if (--n.left === 0) n.regrow = K.rockRegrow; }, "stone"),
+    farmer(v, b) {
+      const plot = nearestFree(c.all("plot"), b, (p) => p.seed && p.grow >= 1);
+      if (!plot) return null;
+      plot.claimed = v;
+      return [
+        walkTo("farm", plot.x, plot.y + 16),
+        wait(1.2 / workMult(v), () => {
+          plot.claimed = null;
+          if (!plot.seed || plot.grow < 1) return false;
+          harvest(plot, b.stock.tomatoes, v.level);
+          v.carry = "tomato";
+          if (++v.xp >= K.farmerLevelEvery && v.level < K.farmerMaxLevel) {
+            v.xp = 0;
+            v.level++;
+            if (pl.zone === "farm") say(`Your Farmer reached level ${v.level}: bigger harvests, faster growth`);
+          }
+        }),
+        walkTo("farm", b.x, b.y + b.h / 2 + 10),
+        wait(0.2, () => { v.carry = null; }),
+      ];
+    },
+    courier(v) {
+      let src = null;
+      let best = 0;
+      for (const b of c.buildings) {
+        const def = BUILDINGS[b.key];
+        if (!def.store) continue;
+        const n = def.store === "tomato" ? countOf(b.stock.tomatoes) : b.stock[def.store];
+        if (n > best && !c.villagers.some((o) => o !== v && o.job === "courier" && o.src === b.id)) {
+          best = n;
+          src = b;
+        }
+      }
+      if (!src) return null;
+      v.src = src.id;
+      const hall = c.find("hall");
+      const load = { log: 0, stone: 0, tomatoes: {} };
+      return [
+        walkTo(src.zone, src.x, src.y + src.h / 2 + 10),
+        wait(0.4, () => {
+          const def = BUILDINGS[src.key];
+          if (def.store === "tomato") {
+            for (const k of takeBest(src.stock.tomatoes, K.courierLoad)) addTo(load.tomatoes, k, 1);
+          } else {
+            const n = Math.min(K.courierLoad, src.stock[def.store]);
+            src.stock[def.store] -= n;
+            load[def.store] = n;
+          }
+          v.carry = def.store;
+          v.src = null;
+        }),
+        walkTo("village", hall.x, hall.y + hall.h / 2 + 8),
+        wait(0.4, () => {
+          c.hall.log += load.log;
+          c.hall.stone += load.stone;
+          for (const [k, n] of Object.entries(load.tomatoes)) addTo(c.hall.tomatoes, k, n);
+          v.carry = null;
+        }),
+      ];
+    },
+    blacksmith(v, b) {
+      const target = toolUsers().filter((o) => o.tool < c.smithTarget).sort((a, o) => a.tool - o.tool)[0];
+      if (!target) return null;
+      const cost = K.tiers[target.tool + 1].cost;
+      if (!hallPays(cost)) return null;
+      return [
+        walkTo("village", b.x, b.y + b.h / 2 + 8),
+        wait(K.blacksmithTime / workMult(v), () => {
+          if (target.tool >= c.smithTarget || !hallPays(cost)) return false;
+          hallPay(cost);
+          target.tool++;
+        }),
+      ];
+    },
+    cook(v, b) {
+      if (countOf(b.stock.tomatoes) >= 12 || c.tomatoes() < 2) return null;
+      return [
+        walkTo("village", b.x, b.y + b.h / 2 + 8),
+        wait(K.cookTime / workMult(v), () => {
+          const used = takeBest(c.hall.tomatoes, 2);
+          if (used.length < 2) return false;
+          addTo(b.stock.tomatoes, used[0], K.mealsPerCook);
+        }),
+      ];
+    },
+    healer(v, b) {
+      return [walkTo("village", b.x + rand(-16, 16), b.y + b.h / 2 + 12), wait(1)];
+    },
+    soldier(v, b) {
+      return idleAt(b);
+    },
   };
 
-  function gatherTask(v, job) {
-    const hut = c.buildings[job.building];
-    const kind = { lumberjack: "tree", miner: "rock", farmer: "crop" }[v.job];
-    const list = { tree: c.trees, rock: c.rocks, crop: c.crops }[kind];
-    const ready = { tree: (n) => n.grown, rock: (n) => n.left > 0, crop: (n) => n.planted && n.growth >= 1 }[kind];
-    const node = nearestFree(list, v, ready);
+  function gatherTask(v, b, list, ready, take, item) {
+    const node = nearestFree(list, b, ready);
     if (!node) return null;
     node.claimed = v;
-    const item = BUILDINGS[job.building].store;
+    const amount = K.tiers[v.tool].yield;
     return [
-      walk({ x: node.x, y: node.y + 4 }),
-      wait(v.fed > 0 ? 0.7 : 1.4, () => {
+      walkTo(b.zone, node.x, node.y + 6),
+      wait(K.chopTime / workMult(v), () => {
         node.claimed = null;
         if (!ready(node)) return false;
-        if (kind === "tree") { node.grown = false; node.regrow = 8; }
-        if (kind === "rock") { node.left--; if (!node.left) node.regrow = 10; }
-        if (kind === "crop") node.growth = 0;
-        v.tool.dur--;
+        take(node);
         v.carry = item;
       }),
-      walk({ x: hut.x, y: hut.y + 24 }),
-      wait(0.2, () => { hut.stock += kind === "crop" ? CROP_YIELD : YIELD; v.carry = null; }),
+      walkTo(b.zone, b.x, b.y + b.h / 2 + 10),
+      wait(0.2, () => {
+        b.stock[item] += amount;
+        v.carry = null;
+      }),
     ];
   }
 
-  function fetchTool(v, tool) {
-    if (c.stock[tool] <= 0) {
-      v.blocked = `no ${tool}`;
-      return null;
-    }
-    return [walk(HALL), wait(0.3, () => {
-      if (c.stock[tool] <= 0) return false;
-      c.stock[tool]--;
-      v.tool = { type: tool, dur: TOOL_DURABILITY };
-    })];
+  // A meal from a Kitchen: optional, but it speeds a villager up (and strengthens a soldier)
+  function mealTask(v) {
+    const kitchen = c.all("kitchen").find((k) => countOf(k.stock.tomatoes) > 0);
+    if (!kitchen) return null;
+    return [
+      walkTo("village", kitchen.x, kitchen.y + kitchen.h / 2 + 8),
+      wait(0.8, () => {
+        const [k] = takeBest(kitchen.stock.tomatoes, 1, v.job === "soldier" ? "fight" : "work");
+        if (!k) return false;
+        v.buff = { stats: k.split("/").map(Number), t: K.mealBuff };
+        v.mealT = K.mealEvery;
+      }),
+    ];
   }
 
-  const takeFromHall = (cost) => wait(0.3, () => {
-    if (!canAfford(cost)) return false;
-    pay(cost);
-  });
-
-  const PROVIDERS = {
-    lumberjack: gatherTask,
-    farmer: gatherTask,
-    miner: gatherTask,
-    courier(v) {
-      let hut = null;
-      for (const key of ["woodhut", "quarry", "farm"]) {
-        const b = c.buildings[key];
-        if (b.built && b.stock > 0 && (!hut || b.stock > hut.stock)) hut = b;
-      }
-      if (!hut) return null;
-      const item = BUILDINGS[hut.key].store;
-      let load = 0;
-      return [
-        walk({ x: hut.x, y: hut.y + 24 }),
-        wait(0.3, () => { load = Math.min(10, hut.stock); hut.stock -= load; v.carry = load ? item : null; }),
-        walk(HALL),
-        wait(0.3, () => { c.stock[item] += load; v.carry = null; }),
-      ];
-    },
-    blacksmith() {
-      const tool = c.toolNeeded();
-      if (!tool || !canAfford(TOOL_COST)) return null;
-      const smithy = c.buildings.smithy;
-      return [walk(HALL), takeFromHall(TOOL_COST), walk({ x: smithy.x, y: smithy.y + 24 }), wait(2, () => { c.stock[tool]++; })];
-    },
-    builder(v) {
-      const roof = c.damagedHouse();
-      if (roof && canAfford(REPAIR_COST)) {
-        return [walk(HALL), takeFromHall(REPAIR_COST), walk(roof), wait(2.5, () => { roof.damaged = false; v.tool.dur--; })];
-      }
-      const spot = c.openHouse();
-      if (spot && c.beds() < Math.max(c.cfg.pop, c.villagers.length) && canAfford(HOUSE_COST)) {
-        return [walk(HALL), takeFromHall(HOUSE_COST), walk(spot), wait(3, () => { spot.built = true; v.tool.dur--; })];
-      }
-      const field = c.crops.find((q) => !q.planted);
-      if (field && c.lowest() === "food" && canAfford(FIELD_COST)) {
-        return [walk(HALL), takeFromHall(FIELD_COST), walk(field), wait(2, () => { field.planted = true; field.growth = 0; v.tool.dur--; })];
-      }
-      return null;
-    },
-    cook() {
-      const kitchen = c.buildings.kitchen;
-      if (kitchen.stock >= 12 || !canAfford({ food: 2 })) return null;
-      return [walk(HALL), takeFromHall({ food: 2 }), walk({ x: kitchen.x, y: kitchen.y + 24 }), wait(1.6, () => { kitchen.stock += 3; })];
-    },
-    healer: () => {
-      const hut = c.buildings.healer;
-      return [walk({ x: hut.x + rand(-14, 14), y: hut.y + 26 }), wait(1.5)];
-    },
-  };
-
-  // Hungry villagers eat a safe Kitchen meal if there is one, otherwise raw food from the Hall
-  function eatTask(v) {
-    const kitchen = c.buildings.kitchen;
-    if (built("kitchen") && kitchen.stock > 0) {
-      return [walk({ x: kitchen.x, y: kitchen.y + 24 }), wait(0.8, () => {
-        if (kitchen.stock <= 0) return false;
-        kitchen.stock--;
-        v.hunger = 0;
-        v.fed = FED_TIME;
-      })];
-    }
-    if (c.stock.food > 0) {
-      return [walk(HALL), wait(0.8, () => {
-        if (c.stock.food <= 0) return false;
-        c.stock.food--;
-        v.hunger = 0;
-        if (chance(POISON_CHANCE)) {
-          v.sick = true;
-          v.recover = SICK_DAYS * DAY;
-          release(v);
-          say(c.working("healer") ? "Food poisoning! The Healer will treat it" : "Food poisoning! Sick people don't count for winter — a Healer cures them fast");
-        }
-      })];
-    }
-    return null;
+  // A wounded soldier goes to a Healer, who uses a tomato: the higher its heal stat, the faster
+  function healTask(v) {
+    const hut = c.all("healer").find((h) => h.workers.length);
+    if (!hut) return idleAt(c.find("hall"));
+    if (c.tomatoes() < 1) return idleAt(hut);
+    return [
+      walkTo("village", hut.x + rand(-12, 12), hut.y + hut.h / 2 + 14),
+      wait(0.1, () => {
+        const [k] = takeBest(c.hall.tomatoes, 1, "heal");
+        if (!k) return false;
+        const heal = Number(k.split("/")[2]);
+        v.healT = (K.healTime * (11 - heal)) / 10;
+      }),
+    ];
   }
 
   function decide(v) {
-    v.blocked = null;
-    const job = JOBS[v.job];
-    if (c.cfg.hunger && v.hunger >= 60) {
-      const eat = eatTask(v);
-      if (eat) return eat;
-      if (v.hunger >= 100) {
-        v.blocked = "starving";
-        return idle();
-      }
+    if (v.wounded) return v.healT > 0 ? [wait(0.5)] : healTask(v);
+    if (!v.job) return idleAt(c.find("tavern"));
+    const b = home(v);
+    if (v.mealT <= 0) {
+      v.mealT = K.mealEvery;
+      const meal = mealTask(v);
+      if (meal) return meal;
     }
-    if (!built(job.building)) return idle();
-    if (job.tool && !(v.tool && v.tool.dur > 0)) return fetchTool(v, job.tool) || idle();
-    return PROVIDERS[v.job](v, job) || idle();
+    return WORK[v.job](v, b) || idleAt(b);
   }
 
-  function speedOf(v) {
-    let s = 82;
-    if (c.cfg.hunger && v.hunger >= 100) s *= 0.5; // starving
-    if (v.fed > 0) s *= 1.35; // a cooked meal
-    if (c.villagers.indexOf(v) >= c.beds()) s *= 0.75; // no bed: tired
-    if (v.sick) s *= 0.6;
-    return s;
+  // Which doorway takes you one step closer to `to`: every route runs through the village
+  function routeExit(from, to) {
+    const next = from === "village" ? to : "village";
+    return EXITS.find((e) => e.zone === from && e.to === next);
   }
+  c.routeExit = routeExit;
 
-  function moveToward(o, target, speed, dt) {
-    const d = dist(o, target);
+  function moveToward(o, x, y, speed, dt) {
+    const d = Math.hypot(x - o.x, y - o.y);
     const step = speed * dt;
     o.walk += dt;
     if (d <= step) {
-      o.x = target.x;
-      o.y = target.y;
+      o.x = x;
+      o.y = y;
       return true;
     }
-    o.x += ((target.x - o.x) / d) * step;
-    o.y += ((target.y - o.y) / d) * step;
+    o.x += ((x - o.x) / d) * step;
+    o.y += ((y - o.y) / d) * step;
     return false;
   }
 
   function runVillager(v, dt) {
-    if (c.cfg.hunger) v.hunger = Math.min(100, v.hunger + (100 / (DAY * 2)) * dt); // hungry about every two days
-    if (v.fed > 0) v.fed -= dt;
-
-    if (v.sick) {
-      const hut = c.buildings.healer;
-      if (c.working("healer")) {
-        if (moveToward(v, { x: hut.x, y: hut.y + 24 }, speedOf(v), dt)) v.recover -= dt * 12; // a healer cures in a few seconds
-      } else {
-        v.recover -= dt;
-      }
-      if (v.recover <= 0) v.sick = false;
-      return;
+    if (v.buff && (v.buff.t -= dt) <= 0) v.buff = null;
+    v.mealT -= dt;
+    if (v.wounded && v.healT > 0 && (v.healT -= dt) <= 0) {
+      v.wounded = false;
+      v.healT = 0;
+      v.task = [];
     }
-
     if (!v.task.length) v.task = decide(v);
     const s = v.task[0];
     if (!s) return;
     if (s.type === "walk") {
-      if (moveToward(v, s, speedOf(v), dt)) v.task.shift();
-    } else {
-      s.t -= dt;
-      if (s.t <= 0) {
-        const ok = s.done ? s.done() : true;
+      if (s.zone !== v.zone) {
+        const e = routeExit(v.zone, s.zone);
+        const door = exitCenter(e);
+        if (moveToward(v, door.x, door.y, K.villagerSpeed * walkMult(v), dt)) {
+          v.zone = e.to;
+          v.x = e.arrive.x;
+          v.y = e.arrive.y;
+        }
+      } else if (moveToward(v, s.x, s.y, K.villagerSpeed * walkMult(v), dt)) {
         v.task.shift();
-        if (ok === false) release(v);
       }
+    } else if ((s.t -= dt) <= 0) {
+      const ok = s.done ? s.done() : true;
+      v.task.shift();
+      if (ok === false) release(v);
     }
   }
 
-  // ---------- explaining what to do ----------
-
-  const WHERE = { log: "chop trees in the forest (left)", stone: "mine rocks in the quarry (top right)", food: "harvest the fields (bottom right)" };
-
-  // What pressing Space will do where you're standing
-  c.promptFor = (it) => {
-    if (!it) return null;
-    const { kind, obj } = it;
-    if (kind === "tree") return `Space: chop (+${YIELD} wood)`;
-    if (kind === "rock") return `Space: mine (+${YIELD} stone)`;
-    if (kind === "crop") return `Space: harvest (+${CROP_YIELD} food)`;
-    if (kind === "hall") {
-      if (c.ready()) return "Space: settle in for winter now";
-      return c.bagTotal() ? `Space: empty your bag into the Hall (${c.bagTotal()})` : "The Hall — your stockpile";
-    }
-    if (kind === "field") return canPay(FIELD_COST) ? `Space: plant a new field (${costText(FIELD_COST)})` : `New field: ${costText(FIELD_COST)}`;
-    if (kind === "house" && obj.damaged) return canPay(REPAIR_COST) ? `Space: repair the caved-in roof (${costText(REPAIR_COST)})` : `Roof repair: ${costText(REPAIR_COST)} — you have ${haveText(REPAIR_COST)}`;
-    if (kind === "house") return canPay(HOUSE_COST) ? `Space: build a house, ${BEDS_PER_HOUSE} beds (${costText(HOUSE_COST)})` : `House: ${costText(HOUSE_COST)} — you have ${haveText(HOUSE_COST)}`;
-    const def = BUILDINGS[obj.key];
-    if (kind === "lot") {
-      if (obj.vines) return `Space: clear the bushes off the ${def.name} lot`;
-      return canPay(def.cost) ? `Space: build the ${def.name} (${costText(def.cost)})` : `${def.name}: ${costText(def.cost)} — you have ${haveText(def.cost)}`;
-    }
-    if (obj.key === "tavern") {
-      const job = c.openJob();
-      if (!job) return "Tavern: no open jobs — build a workplace";
-      return c.visitors.length ? `Space: hire a ${JOBS[job].name} (${HIRE_FEE} wood)` : "Tavern: waiting for a visitor";
-    }
-    if (def.store && obj.stock > 0) return `Space: pick up ${obj.stock} ${ITEM_WORD[def.store]}`;
-    if (obj.key === "smithy") {
-      if (c.working("blacksmith")) return c.player.toolLevel < 3 ? `Space: sharpen your own tools (${UPGRADE_COST} stone)` : "The Blacksmith is at work";
-      const tool = c.toolNeeded();
-      return tool ? `Space: forge ${aTool(tool)} (${costText(TOOL_COST)})` : "Smithy: nobody needs a tool";
-    }
-    if (obj.key === "kitchen") return c.working("cook") ? "The Cook is at work" : "Space: cook 3 meals (2 food)";
-    return def.name;
-  };
-
-  const nearestNode = (item) => {
-    const pool = item === "log" ? c.trees.filter((t) => t.grown) : item === "stone" ? c.rocks.filter((k) => k.left > 0) : c.crops.filter((q) => q.planted && q.growth >= 1);
-    let best = null;
-    for (const n of pool) if (!best || dist(n, c.player) < dist(best, c.player)) best = n;
-    return best;
-  };
-  c.nearestNode = nearestNode;
-
-  // Returns [what to do, where]
-  function buildHint(key) {
-    const lot = c.buildings[key];
-    const def = BUILDINGS[key];
-    if (lot.vines) return [`Walk to the ${def.name} lot (arrow) and press Space to clear it`, lot];
-    if (canPay(def.cost)) return [`Build the ${def.name}: stand on its lot (arrow) and press Space`, lot];
-    const k = Object.keys(def.cost).find((item) => c.stock[item] + bagCount(item) < def.cost[item]);
-    return [`The ${def.name} needs ${costText(def.cost)} (you have ${haveText(def.cost)}) — ${WHERE[k]}`, nearestNode(k)];
-  }
+  // ---------- hints: what to do next ----------
 
   function step() {
-    if (c.ready()) return ["Ready for winter! Press Space at the Hall to settle in, or keep stocking up for next year", HALL];
-    if (c.bagTotal() && (c.readyWithBag() || c.daysLeft() < 1)) return ["Drop your bag off at the Hall — only stored food and wood count for winter", HALL];
-    if (!built("tavern")) {
-      const [t, at] = buildHint("tavern");
-      return [`${t} — the Tavern is where you hire people`, at];
+    const t = c.trophies;
+    if (!c.villagers.length && !c.all("woodhut").length) {
+      if (pl.zone !== "forest" && have("log") < BUILDINGS.woodhut.cost.log) return ["Head west to the Forest and chop wood (Space at a tree)", "forest"];
+      if (have("log") < BUILDINGS.woodhut.cost.log) return [`Chop ${BUILDINGS.woodhut.cost.log} wood, then build a Woodchopper Hut here (Shift)`, "forest"];
+      return ["Build a Woodchopper Hut: in the Forest, press Shift and pick it", "forest"];
     }
-    for (const job of c.cfg.jobs) {
-      const key = JOBS[job].building;
-      if (!built(key)) {
-        const [t, at] = buildHint(key);
-        return [`${t} — it's where a ${JOBS[job].name} works`, at];
-      }
+    if (c.idle().length && c.openSlots().length) return ["You have an idle villager — stand at a building with an empty job and press Space", c.openSlots()[0]];
+    if (c.openSlots().length && c.idle().length < c.openSlots().length) {
+      if (c.canPay(c.hireCost())) return [`Empty job waiting — hire a villager at the Tavern (${costText(c.hireCost())})`, c.find("tavern")];
+      return [`Empty job waiting — hiring costs ${costText(c.hireCost())}, keep chopping`, "forest"];
     }
-    const toolless = c.villagers.find((v) => v.blocked && v.blocked.startsWith("no "));
-    if (toolless) {
-      const tool = toolless.blocked.slice(3);
-      if (c.working("blacksmith")) return [`Your ${JOBS[toolless.job].name} needs ${aTool(tool)} — the Blacksmith makes it from ${costText(TOOL_COST)} in the Hall`, HALL];
-      if (built("smithy")) return [`Your ${JOBS[toolless.job].name} needs ${aTool(tool)} — forge one at the Smithy (${costText(TOOL_COST)})`, c.buildings.smithy];
-      const [t, at] = buildHint("smithy");
-      return [`Your ${JOBS[toolless.job].name} needs ${aTool(tool)}, made at the Smithy. ${t}`, at];
-    }
-    const empty = c.cfg.jobs.find((j) => villagersIn(j).length === 0);
-    if (empty) {
-      return c.visitors.length
-        ? [`Someone's at the Tavern — stand there and press Space to hire them as your ${JOBS[empty].name} (${HIRE_FEE} wood)`, c.buildings.tavern]
-        : [`Waiting for a visitor at the Tavern to hire as your ${JOBS[empty].name} — gather meanwhile`, nearestNode(lowest())];
-    }
-    if (c.cfg.hunger && !c.working("cook") && c.buildings.kitchen.stock === 0 && c.villagers.some((v) => v.hunger >= 60)) {
-      return ["People are hungry and raw food can make them sick — cook meals at the Kitchen (2 food → 3 meals)", c.buildings.kitchen];
-    }
-    const sick = c.villagers.find((v) => v.sick);
-    if (sick && !c.working("healer")) {
-      if (!built("healer")) {
-        const [t, at] = buildHint("healer");
-        return [`Someone has food poisoning and won't count for winter. ${t}`, at];
-      }
-      return ["Someone has food poisoning — hire a Healer at the Tavern to cure them in seconds", c.buildings.tavern];
-    }
-    const roof = c.damagedHouse();
-    if (roof && !c.working("builder")) return [`Winter caved in a roof — stand at the house and press Space to repair it (${costText(REPAIR_COST)})`, roof];
-    const n = c.needs();
-    if (n.beds[0] < n.beds[1]) {
-      if (c.working("builder")) return [`Your Builder is putting up houses — keep ${costText(HOUSE_COST)} in the Hall for each`, HALL];
-      const spot = c.openHouse();
-      return canPay(HOUSE_COST)
-        ? [`Everyone needs a bed: build a house on a house plot (arrow) — ${costText(HOUSE_COST)}`, spot]
-        : [`Everyone needs a bed: a house costs ${costText(HOUSE_COST)} (you have ${haveText(HOUSE_COST)})`, nearestNode(c.stock.log + bagCount("log") < HOUSE_COST.log ? "log" : "stone")];
-    }
-    if (n.people[0] < n.people[1]) {
-      const job = c.openJob();
-      return c.visitors.length && job
-        ? [`You need ${n.people[1]} people by winter — hire another ${JOBS[job].name} at the Tavern`, c.buildings.tavern]
-        : [`You need ${n.people[1]} people by winter — wait for visitors at the Tavern`, c.buildings.tavern];
-    }
-    const low = lowest();
-    const field = c.crops.find((q) => !q.planted);
-    if (low === "food" && field && !c.working("builder")) {
-      return [`Food is furthest behind — plant a new field (${costText(FIELD_COST)}) and hire more Farmers`, field];
-    }
-    return [`Stock up for winter: ${ITEM_WORD[low]} is furthest behind — ${WHERE[low]}`, nearestNode(low)];
+    if (!c.all("smithy").length && c.villagers.length >= 2) return ["Build a Smithy in the village: better tools multiply what everyone brings back", "village"];
+    if (!c.all("post").length && c.villagers.length >= 3) return ["Build a Courier Post: couriers carry every hut's pile to the Hall for you", "village"];
+    if (!c.all("quarry").length) return ["Build a Quarry Hut in the Mine (north) — you'll need stone for tools", "mine"];
+    if (!t.farm && !c.all("farmhouse").length) return ["Down at the Farm (south): build a Farmhouse and cross seeds at the bench toward 10/10/10/10", "farm"];
+    if (!t.resource) return [`Build more huts and upgrade tools — the sculpture needs ${K.sculpture.log} wood and ${K.sculpture.stone} stone`, null];
+    if (!t.farm) return [`Best seed so far: ${seedKey(c.bestSeed)} — cross your best seeds at the bench`, c.find("bench")];
+    if (!t.raid) return [`Build Barracks, hire soldiers and forge swords — then start the raid (east)`, "raid"];
+    return ["All trophies won!", null];
   }
-
-  // The winter store furthest from its goal
-  function lowest() {
-    const n = c.needs();
-    return n.food[0] / n.food[1] < n.wood[0] / n.wood[1] ? "food" : "log";
-  }
-  c.lowest = lowest;
 
   c.nextStep = () => {
     const [text, at] = step();
-    c.hintTarget = at || null;
+    c.hint = at ? (typeof at === "string" ? { zone: at } : at) : null;
     return text;
   };
 
@@ -815,135 +850,143 @@ function createColony(input) {
 
   c.update = (dt) => {
     const input = c.input;
-    const prevDay = c.day();
-    c.clock += dt;
-    if (c.day() !== prevDay) sfx("tick");
+    c.time += dt;
+    if (c.msg && (c.msg.t -= dt) <= 0) c.msg = null;
+    if (c.fade > 0) c.fade = Math.max(0, c.fade - dt * 3);
 
-    // Regrowth: fields grow faster once the Farm is built
+    // The world keeps going wherever you are
     for (const t of c.trees) if (!t.grown && (t.regrow -= dt) <= 0) t.grown = true;
     for (const k of c.rocks) if (!k.left && (k.regrow -= dt) <= 0) k.left = 3;
-    for (const p of c.crops) if (p.planted) p.growth = Math.min(1, p.growth + dt / (built("farm") ? 7 : 12));
+    const growRate = (1 + K.growBonusPerLevel * (c.farmerLevel() - 1)) / K.growTime;
+    for (const p of c.all("plot")) if (p.seed) p.grow = Math.min(1, p.grow + growRate * dt);
+    for (const v of c.villagers) runVillager(v, dt);
 
-    // Visitors drift into the Tavern and wait a while
-    if (built("tavern")) {
-      c.visitT -= dt;
-      if (c.visitT <= 0 && c.visitors.length < 2) {
-        c.visitors.push({ stay: 25 });
-        c.visitT = rand(3, 6);
+    if (c.raid) {
+      const result = updateRaid(c, c.raid, input, dt);
+      if (result === "win") {
+        c.raid = null;
+        trophy("raid", "Raid won! The raid room is yours");
+      } else if (result === "lose") {
+        c.raid = null;
+        say("The raid failed — your soldiers are wounded. A Healer and tomatoes will patch them up", 4);
+        sfx("lose");
       }
+      input.pendingFire = false;
+      return;
     }
-    for (const v of c.visitors) v.stay -= dt;
-    c.visitors = c.visitors.filter((v) => v.stay > 0);
+    input.pendingFire = false; // clicks only matter in the raid
 
-    // You: walk and play the minigame
-    const p = c.player;
+    if (c.menu) return runMenu(input);
+    if (c.placing && (input.pressed.action || input.pressed.action2)) return runPlacing(input);
+
+    // Walking (the minigame holds you still)
     const mx = (input.held.right ? 1 : 0) - (input.held.left ? 1 : 0);
     const my = (input.held.down ? 1 : 0) - (input.held.up ? 1 : 0);
-    if ((mx || my) && !c.mg) {
+    if ((mx || my) && c.mg) c.mg = null;
+    if (mx || my) {
       const len = Math.hypot(mx, my);
-      p.x = clamp(p.x + (mx / len) * 140 * dt, 10, W - 10);
-      p.y = clamp(p.y + (my / len) * 140 * dt, 40, H - 12);
-      if (mx) p.face = mx;
-      p.walk += dt;
+      const z = ZONES[pl.zone];
+      pl.x = clamp(pl.x + (mx / len) * K.playerSpeed * dt, 8, z.w - 8);
+      pl.y = clamp(pl.y + (my / len) * K.playerSpeed * dt, 20, z.h - 8);
+      pl.face = { x: mx / len, y: my / len };
+      pl.walk += dt;
+      for (const e of EXITS) {
+        if (e.zone === pl.zone && pl.x >= e.x && pl.x <= e.x + e.w && pl.y >= e.y && pl.y <= e.y + e.h) {
+          pl.zone = e.to;
+          pl.x = e.arrive.x;
+          pl.y = e.arrive.y;
+          c.fade = 1;
+          c.placing = null;
+          sfx("blip");
+          break;
+        }
+      }
     }
+
     if (c.mg) {
       const mg = c.mg;
-      if (mx || my || dist(p, mg.target) > BUILDING_REACH + 10) c.mg = null; // walking away cancels
-      else if (mg.cool > 0) mg.cool -= dt;
+      if (mg.cool > 0) mg.cool -= dt;
       else {
-        mg.phase += mg.dir * mg.speed * dt;
+        mg.phase += mg.dir * K.gatherTime * dt;
         if (mg.phase > 1) { mg.phase = 1; mg.dir = -1; }
         if (mg.phase < 0) { mg.phase = 0; mg.dir = 1; }
         if (input.pressed.action) {
-          if (Math.abs(mg.phase - mg.zoneC) <= mg.zoneW / 2) finishMinigame();
+          if (Math.abs(mg.phase - mg.zoneC) <= mg.zoneW / 2) finishGather();
           else {
-            mg.cool = 0.45;
+            mg.cool = 0.4;
             mg.zoneC = rand(0.25, 0.75);
             sfx("error", { volume: 0.5 });
           }
         }
       }
-    } else if (input.pressed.action) {
-      act();
+      return;
     }
-
-    for (const v of c.villagers) runVillager(v, dt);
-    if (c.msg && (c.msg.t -= dt) <= 0) c.msg = null;
-
-    if (!c.over && c.clock >= DAYS * DAY) c.over = c.ready() ? "ready" : "late";
+    if (c.placing) return;
+    if (input.pressed.action2) return openBuildMenu();
+    if (input.pressed.action) act();
   };
 
-  // A new year: winter has eaten its share, the calendar restarts, and the goal grows
-  c.newYear = (year, input) => {
-    c.cfg = yearCfg(year);
-    c.input = input;
-    c.clock = 0;
-    c.over = null;
+  function finishGather() {
+    const { kind, target } = c.mg;
     c.mg = null;
-    c.visitors = [];
-    c.player.x = HALL.x;
-    c.player.y = HALL.y + 1.15 * T;
-    for (const v of c.villagers) {
-      release(v);
-      v.sick = false;
-      v.hunger = 0;
-      v.x = HALL.x + rand(-40, 40);
-      v.y = HALL.y + rand(34, 60);
+    const item = kind === "tree" ? "log" : "stone";
+    const room = K.bagLimit - pl.bag[item];
+    if (kind === "tree" && target.grown) {
+      target.grown = false;
+      target.regrow = K.treeRegrow;
+      pl.bag.log += Math.min(room, K.tiers[pl.axe].yield);
+      sfx("chop");
+    } else if (kind === "rock" && target.left > 0) {
+      if (--target.left === 0) target.regrow = K.rockRegrow;
+      pl.bag.stone += Math.min(room, K.tiers[pl.pickaxe].yield);
+      sfx("thud");
     }
-    for (const t of c.trees) t.grown = true;
-    for (const k of c.rocks) k.left = 3;
-  };
-
-  // ---------- cheat codes (testing aids — see CHEATS below) ----------
-
-  function addWorker(job) {
-    const tool = JOBS[job].tool;
-    c.villagers.push({
-      id: c.nextId++, job, x: HALL.x + rand(-40, 40), y: HALL.y + rand(34, 60),
-      task: [], tool: tool ? { type: tool, dur: TOOL_DURABILITY } : null, carry: null, hunger: 0, fed: 0, sick: false, recover: 0, blocked: null, walk: 0,
-    });
+    if (pl.bag[item] >= K.bagLimit) say("Bag full — store it at the Hall");
   }
 
+  // ---------- cheat codes (testing aids) ----------
+
   c.cheat = (code) => {
+    const hallB = c.find("hall");
+    const newVillager = (job, b) => {
+      const at = b || hallB;
+      const v = { id: c.nextId++, zone: at.zone, x: at.x + rand(-30, 30), y: at.y + 50, job: job || null, building: b ? b.id : null, tool: 0, task: [], carry: null, buff: null, mealT: K.mealEvery, wounded: false, healT: 0, level: 1, xp: 0, walk: 0 };
+      if (b) b.workers.push(v.id);
+      c.villagers.push(v);
+      return v;
+    };
     switch (code) {
-      case "WOOD": c.stock.log += 50; return "+50 wood in the Hall";
-      case "STONE": c.stock.stone += 30; return "+30 stone in the Hall";
-      case "FOOD": c.stock.food += 50; return "+50 food in the Hall";
       case "RICH":
-        c.stock.log += 100;
-        c.stock.stone += 60;
-        c.stock.food += 100;
-        return "+100 wood, +60 stone, +100 food";
-      case "BUILD":
-        for (const b of Object.values(c.buildings)) if (unlocked(b.key)) { b.vines = false; b.built = true; }
-        c.houses.forEach((h, i) => { if (i < c.housePlots()) { h.built = true; h.damaged = false; } });
-        return "Every building and house for this year is up";
-      case "CREW": {
-        let n = 0;
-        while (c.villagers.length < c.cfg.pop) {
-          const job = c.openJob() || "lumberjack";
-          if (!built(JOBS[job].building)) { c.buildings[JOBS[job].building].built = true; c.buildings[JOBS[job].building].vines = false; }
-          addWorker(job);
-          n++;
-        }
-        for (const job of c.cfg.jobs) if (!villagersIn(job).length) { c.buildings[JOBS[job].building].built = true; c.buildings[JOBS[job].building].vines = false; addWorker(job); n++; }
-        return `Hired ${n} workers, tools included`;
-      }
+        c.hall.log += 2000;
+        c.hall.stone += 2000;
+        addTo(c.hall.tomatoes, seedKey(c.bestSeed), 20);
+        return "+2000 wood, +2000 stone, +20 tomatoes in the Hall";
+      case "CROWD":
+        for (let i = 0; i < 5; i++) newVillager(null, null);
+        return "5 idle villagers";
       case "TOOLS":
-        for (const v of c.villagers) if (JOBS[v.job].tool) v.tool = { type: JOBS[v.job].tool, dur: TOOL_DURABILITY };
-        for (const t of ["axe", "pickaxe", "hoe", "hammer"]) c.stock[t] += 3;
-        return "Fresh tools for everyone, +3 spares of each";
-      case "HEAL":
-        for (const v of c.villagers) { v.sick = false; v.hunger = 0; v.fed = FED_TIME; }
-        return "Everyone healed and well fed";
-      case "SNOW": c.clock = Math.max(c.clock, (DAYS - 0.5) * DAY); return "Half a day until the snow";
-      case "NEXT": c.over = "ready"; return "Skipping to next year";
-      case "READY":
-        c.cheat("CREW");
-        c.cheat("BUILD");
-        c.stock.log += c.needs().wood[1];
-        c.stock.food += c.needs().food[1];
-        return "Ready for winter — press Space at the Hall";
+        pl.axe = pl.pickaxe = pl.sword = K.tiers.length - 1;
+        for (const v of c.villagers) v.tool = K.tiers.length - 1;
+        return "Legendary tools for you and everyone";
+      case "ARMY": {
+        const barracks = () => c.all("barracks").find((x) => x.workers.length < BUILDINGS.barracks.slots) || addBuilding("barracks", "village", 1180, 260 + 80 * c.all("barracks").length);
+        for (let i = 0; i < 4; i++) newVillager("soldier", barracks()).tool = 2;
+        return "4 soldiers with iron swords";
+      }
+      case "BLOOM":
+        addTo(c.seeds, "9/9/9/9", 4);
+        c.bestSeed = [9, 9, 9, 9];
+        return "+4 seeds of 9/9/9/9";
+      case "HAUL":
+        for (const b of c.buildings) {
+          if (b.key === "kitchen") continue;
+          c.hall.log += b.stock.log;
+          c.hall.stone += b.stock.stone;
+          for (const [k, n] of Object.entries(b.stock.tomatoes)) addTo(c.hall.tomatoes, k, n);
+          b.stock.log = b.stock.stone = 0;
+          b.stock.tomatoes = {};
+        }
+        return "Every hut's pile is in the Hall";
     }
     return null;
   };
@@ -951,748 +994,96 @@ function createColony(input) {
   return c;
 }
 
-// Cheat codes: type the word while playing (shown on the setup screen)
-const CHEATS = {
-  WOOD: "+50 wood",
-  STONE: "+30 stone",
-  FOOD: "+50 food",
-  RICH: "lots of everything",
-  BUILD: "build every building and house for this year",
-  CREW: "hire workers up to this year's goal, with tools",
-  TOOLS: "fresh tools for everyone",
-  HEAL: "cure and feed everyone",
-  SNOW: "jump to the last half-day",
-  NEXT: "win this year and go to the next",
-  READY: "everything winter needs, at once",
-};
+// ---------- the round: one timed run ----------
 
-// Winter eats food (meals first) and burns firewood
-function winter(c) {
-  const foodNeed = Math.max(c.cfg.food, c.villagers.length * c.cfg.each.food);
-  const woodNeed = Math.max(c.cfg.wood, c.villagers.length * c.cfg.each.wood);
-  const fromMeals = c.consume("meal", foodNeed);
-  c.consume("food", foodNeed - fromMeals);
-  c.consume("log", woodNeed);
-  // The weight of the snow caves in a roof for every three houses
-  const standing = c.houses.filter((h) => h.built && !h.damaged);
-  c.storm = Math.ceil(standing.length / 3);
-  for (let i = 0; i < c.storm; i++) standing.splice(Math.floor(Math.random() * standing.length), 1)[0].damaged = true;
-}
-
-// Starting at a later year (the level select): everything earlier years would have built
-function headStart(c, year) {
-  for (const b of Object.values(c.buildings)) {
-    if (BUILDINGS[b.key].year < year) {
-      b.vines = false;
-      b.built = true;
-    }
-  }
-  const pop = yearCfg(year - 1).pop;
-  c.cfg = yearCfg(year - 1);
-  for (let i = 0; i < pop; i++) {
-    const job = c.openJob() || "lumberjack";
-    const tool = JOBS[job].tool;
-    c.villagers.push({
-      id: c.nextId++, job, x: HALL.x + rand(-40, 40), y: HALL.y + rand(34, 60),
-      task: [], tool: tool ? { type: tool, dur: TOOL_DURABILITY } : null, carry: null, hunger: 0, fed: 0, sick: false, recover: 0, blocked: null, walk: 0,
-    });
-  }
-  for (let i = 0; i < Math.ceil(pop / BEDS_PER_HOUSE); i++) c.houses[i].built = true;
-  c.cfg = yearCfg(year);
-  c.stock.log += Math.round(c.cfg.wood / 2);
-  c.stock.food += Math.round(c.cfg.food / 2);
-  c.stock.stone += 6;
-}
-
-// ---------- the round: one year ----------
-
-function createRound({ level, inputs, humans = [true, false], prev = null }) {
-  let c;
-  if (prev && prev.colony) {
-    c = prev.colony;
-    winter(c);
-    c.newYear(level, inputs[0]);
-  } else {
-    c = createColony(inputs[0]);
-    if (level > 1) headStart(c, level);
-  }
-
+function createRound({ inputs }) {
+  const c = createColony(inputs[0]);
   const r = {
-    level,
     colony: c,
-    human: humans[0],
     winner: null,
     endReason: "",
-    roundLabel: `Year ${level}`,
-    winTitle: "Ready for winter!",
-    loseTitle: "Winter came too soon",
-    timeScale: 0.75,
-    countdown: 7,
+    roundLabel: "The run",
+    winTitle: "All three trophies!",
+    countdown: 6,
     view: null,
-    snow: 0, // 0..1 as the first snow settles
+    finalTime: null,
   };
 
-  r.intro = () => {
-    const n = c.needs();
-    return [
-      `The first snow falls in ${DAYS} days. Before it does, you need:`,
-      `${n.people[1]} people · ${n.beds[1]} beds · ${n.food[1]} food · ${n.wood[1]} firewood`,
-      "Hire people at the Tavern. Build houses for beds.",
-      "Gather food and wood — or hire workers to gather for you.",
-      c.storm ? `The snow caved in ${c.storm} roof${c.storm > 1 ? "s" : ""} — repair ${c.storm > 1 ? "them" : "it"} to get the beds back.` : null,
-      NEW_IN_YEAR[level] || "Every year asks for more.",
-      "Follow the NEXT bar and the yellow arrow.",
-    ].filter(Boolean);
-  };
+  r.intro = () => [
+    "Collect all three trophies as fast as you can:",
+    `Resource Master — a sculpture of ${K.sculpture.log} wood + ${K.sculpture.stone} stone`,
+    "Perfect Tomato — breed a 10/10/10/10 seed at the bench",
+    "Raid — beat the raid room with your soldiers",
+    "Villagers are faster than you: hire them, give them huts and tools.",
+    "Space: act · Shift: build (and block in the raid) · click to attack",
+  ];
 
   r.update = (dt) => {
     if (r.winner !== null) return r.winner;
-    if (c.over) {
-      // Let the snow settle for a moment before the year's verdict
-      r.snow = Math.min(1, r.snow + dt / 1.6);
-      if (r.snow >= 1) {
-        if (c.over === "ready") {
-          r.winner = 0;
-          r.endReason = `Everyone is housed, fed and warm. Year ${level + 1} will ask for more.`;
-          sfx("win");
-        } else {
-          r.winner = 1;
-          r.endReason = `The snow came and you still needed ${c.missing().join(", ")}.`;
-          sfx("lose");
-        }
-      }
-      return r.winner;
-    }
     c.update(dt);
-    return null;
+    if (c.trophies.resource && c.trophies.farm && c.trophies.raid) {
+      r.winner = 0;
+      r.finalTime = c.time;
+      r.endReason = `All three trophies in ${formatClock(c.time)}.`;
+    }
+    return r.winner;
   };
 
   r.status = () => {
-    const n = c.needs();
-    return `${cap(c.season())}, day ${c.day()} of ${DAYS} · People ${n.people[0]}/${n.people[1]} · Beds ${n.beds[0]}/${n.beds[1]} · Food ${n.food[0]}/${n.food[1]} · Wood ${n.wood[0]}/${n.wood[1]}`;
+    const t = c.trophies;
+    return `${formatClock(c.time)} · ${ZONES[c.player.zone].name} · Villagers ${c.villagers.length} · Trophies ${[t.resource, t.farm, t.raid].filter(Boolean).length}/3`;
   };
   r.draw = (ctx) => draw(ctx, r);
   return r;
 }
 
-const cap = (s) => s[0].toUpperCase() + s.slice(1);
-
-// ---------- a computer player, used only to tune the numbers (tests/colony-tune.js) ----------
-
-function founderBot(r, input, skill) {
-  const c = r.colony;
-  const clock = new Clock(lerp(0.5, 0.15, skill));
-  const lag = lerp(0.1, 0.03, skill);
-  const tolerance = lerp(0.55, 0.8, skill);
-  let goal = null;
-  let pressCd = 0;
-  const go = (obj) => ({ x: obj.x, y: obj.y });
-  const gather = (item) => {
-    const n = c.nearestNode(item);
-    return n ? { x: n.x, y: n.y - (item === "log" ? 10 : item === "stone" ? 8 : 0) } : null;
-  };
-
-  function plan() {
-    const carried = c.bagTotal();
-    const have = (item) => c.stock[item] + c.bagCount(item);
-    const toHall = go(HALL);
-    if (c.ready()) return toHall;
-    if (carried && (c.readyWithBag() || c.daysLeft() < 0.8)) return toHall;
-    if (carried >= 16) return toHall;
-
-    const job = c.openJob();
-    const n = c.needs();
-    if (job && c.buildings.tavern.built && c.visitors.length && c.villagers.length < n.people[1] + 2) {
-      if (have("log") >= HIRE_FEE) return go(c.buildings.tavern);
-    }
-    if (c.toolNeeded() && !c.working("blacksmith") && c.buildings.smithy.built && c.canPay(TOOL_COST)) return go(c.buildings.smithy);
-    if (c.cfg.hunger && !c.working("cook") && c.buildings.kitchen.built && c.buildings.kitchen.stock < 3 && c.canPay({ food: 2 })) return go(c.buildings.kitchen);
-
-    const order = ["tavern", "woodhut", "farm", "smithy", "quarry", "post", "yard", "kitchen", "healer"];
-    const next = order.find((k) => c.unlocked(k) && !c.buildings[k].built);
-    if (next) {
-      const lot = c.buildings[next];
-      const cost = BUILDINGS[next].cost;
-      if (lot.vines || c.canPay(cost)) return go(lot);
-      const missing = Object.keys(cost).find((k) => have(k) < cost[k]);
-      return gather(missing) || toHall;
-    }
-    const roof = c.damagedHouse();
-    if (roof && !c.working("builder")) {
-      if (c.canPay(REPAIR_COST)) return go(roof);
-      return gather(have("log") < REPAIR_COST.log ? "log" : "stone") || toHall;
-    }
-    if (n.beds[0] < n.beds[1] && !c.working("builder")) {
-      const spot = c.openHouse();
-      if (spot && c.canPay(HOUSE_COST)) return go(spot);
-      return gather(have("log") < HOUSE_COST.log ? "log" : "stone") || toHall;
-    }
-    if (!c.working("courier")) {
-      const hut = ["woodhut", "quarry", "farm"].map((k) => c.buildings[k]).find((b) => b.built && b.stock >= 8);
-      if (hut && carried < 10) return { x: hut.x, y: hut.y };
-    }
-    const field = c.crops.find((q) => !q.planted);
-    if (field && c.lowest() === "food" && !c.working("builder") && c.canPay(FIELD_COST) && have("log") > 8) return go(field);
-    return gather(c.lowest()) || toHall;
-  }
-
-  return {
-    update(dt) {
-      pressCd -= dt;
-      const mg = c.mg;
-      if (mg) {
-        input.held.left = input.held.right = input.held.up = input.held.down = false;
-        if (mg.cool <= 0 && pressCd <= 0) {
-          const seen = mg.phase - mg.dir * mg.speed * lag; // reacts to where the marker *was*
-          if (Math.abs(seen - mg.zoneC) <= (mg.zoneW / 2) * tolerance) {
-            input.press("action");
-            pressCd = 0.15;
-          }
-        }
-        return;
-      }
-      if (clock.tick(dt) || !goal) goal = plan();
-      const p = c.player;
-      const dx = goal.x - p.x;
-      const dy = goal.y - p.y;
-      const close = Math.hypot(dx, dy) < 12;
-      input.held.right = dx > 4 && !close;
-      input.held.left = dx < -4 && !close;
-      input.held.down = dy > 4 && !close;
-      input.held.up = dy < -4 && !close;
-      if (close && pressCd <= 0) {
-        input.press("action");
-        pressCd = lerp(0.6, 0.25, skill);
-        goal = null;
-      }
-    },
-  };
+export function formatClock(s) {
+  const tenths = Math.floor(s * 10);
+  const m = Math.floor(tenths / 600);
+  const sec = (tenths % 600) / 10;
+  return `${m}:${sec < 10 ? "0" : ""}${sec.toFixed(1)}`;
 }
 
-// ---------- Drawing ----------
-
-const TOP = 48; // calendar + checklist strip, then the NEXT bar
-const BOT = 28; // bag, tools and workers
-const ZOOM = 1.8;
-const INK = "#2b1d12";
-const CREAM = "#f3e6c9";
-const SHADE = "rgba(28, 17, 10, 0.86)";
-
-function text(ctx, str, x, y, size, color, align = "left") {
-  ctx.font = `${size}px "Special Elite", monospace`;
-  ctx.fillStyle = color;
-  ctx.textAlign = align;
-  ctx.textBaseline = "middle";
-  ctx.fillText(str, x, y);
-}
-
-function fitText(ctx, str, x, y, max, maxW, color) {
-  ctx.font = `${max}px "Special Elite", monospace`;
-  const size = Math.max(7, Math.min(max, Math.floor((max * maxW) / ctx.measureText(str).width)));
-  text(ctx, str, x, y, size, color);
-}
-
-function label(ctx, str, x, y) {
-  ctx.font = '9px "Special Elite", monospace';
-  const w = ctx.measureText(str).width + 6;
-  ctx.fillStyle = "rgba(243, 230, 201, 0.85)";
-  ctx.fillRect(Math.round(x - w / 2), Math.round(y - 6), Math.round(w), 12);
-  text(ctx, str, x, y, 9, INK, "center");
-}
-
-// A text pill that shrinks to fit the screen
-function pill(ctx, str, x, y, color) {
-  ctx.font = '13px "Special Elite", monospace';
-  const size = Math.max(8, Math.min(13, Math.floor((13 * (W - 24)) / ctx.measureText(str).width)));
-  ctx.font = `${size}px "Special Elite", monospace`;
-  const w = ctx.measureText(str).width + 16;
-  const cx = clamp(x, w / 2 + 4, W - w / 2 - 4);
-  const cy = clamp(y, TOP + 14, H - BOT - 14);
-  ctx.fillStyle = "rgba(28, 17, 10, 0.9)";
-  ctx.fillRect(cx - w / 2, cy - 11, w, 22);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = 1;
-  ctx.strokeRect(cx - w / 2 + 0.5, cy - 10.5, w - 1, 21);
-  text(ctx, str, cx, cy, size, color, "center");
-}
-
-// A golden arrow pointing down, its tip at (x, y)
-function arrowDown(ctx, x, y) {
-  ctx.beginPath();
-  ctx.moveTo(x, y);
-  ctx.lineTo(x - 9, y - 10);
-  ctx.lineTo(x - 4, y - 10);
-  ctx.lineTo(x - 4, y - 21);
-  ctx.lineTo(x + 4, y - 21);
-  ctx.lineTo(x + 4, y - 10);
-  ctx.lineTo(x + 9, y - 10);
-  ctx.closePath();
-  const g = ctx.createLinearGradient(x - 9, 0, x + 9, 0);
-  g.addColorStop(0, "#ffe38a");
-  g.addColorStop(1, "#e0a030");
-  ctx.fillStyle = g;
-  ctx.fill();
-  ctx.lineWidth = 1.5;
-  ctx.lineJoin = "round";
-  ctx.strokeStyle = INK;
-  ctx.stroke();
-}
-
-function draw(ctx, r) {
-  const c = r.colony;
-  const vh = (H - TOP - BOT) / ZOOM;
-  const vw = W / ZOOM;
-  c.view = {
-    zoom: ZOOM,
-    x: clamp(c.player.x - vw / 2, 0, W - vw),
-    y: clamp(c.player.y - 20 - vh / 2, 0, H - vh) - TOP / ZOOM,
-  };
-  r.view = null; // no cursors to place
-  ctx.save();
-  ctx.fillStyle = "#3d2616";
-  ctx.fillRect(0, 0, W, H);
-  ctx.scale(ZOOM, ZOOM);
-  ctx.translate(-c.view.x, -c.view.y);
-  drawWorld(ctx, c, r);
-  ctx.restore();
-  drawDusk(ctx, c);
-  drawSnow(ctx, c, r);
-  drawPlayerText(ctx, c);
-  drawHud(ctx, c);
-  drawMinimap(ctx, c);
-  if (c.hintTarget && !c.over) drawEdgeArrow(ctx, c);
-}
-
-// Evening light at the end of each day, so days are felt as well as counted
-function drawDusk(ctx, c) {
-  const f = (c.clock % DAY) / DAY;
-  const a = f > 0.8 ? (f - 0.8) * 1.2 : 0;
-  if (a <= 0) return;
-  ctx.fillStyle = `rgba(40, 20, 60, ${a})`;
-  ctx.fillRect(0, TOP, W, H - TOP - BOT);
-}
-
-// Flurries late in autumn, then the first snow settling over everything
-function drawSnow(ctx, c, r) {
-  const left = c.daysLeft();
-  const flurry = c.over ? 1 : left < 1.5 ? (1.5 - left) / 1.5 : 0;
-  if (flurry > 0) {
-    const n = Math.round(90 * flurry);
-    for (let i = 0; i < n; i++) {
-      const speed = 22 + (i % 5) * 9;
-      const x = (i * 97.3 + Math.sin(c.clock * 0.8 + i) * 14 + c.clock * 6) % W;
-      const y = TOP + ((i * 53.7 + c.clock * speed) % (H - TOP - BOT));
-      ctx.fillStyle = "#ffffff";
-      ctx.fillRect(Math.round(x), Math.round(y), i % 3 === 0 ? 3 : 2, i % 3 === 0 ? 3 : 2);
-    }
-  }
-  if (r.snow > 0) {
-    ctx.fillStyle = `rgba(236, 244, 250, ${0.85 * r.snow})`;
-    ctx.fillRect(0, TOP, W, H - TOP - BOT);
-  }
-}
-
-function drawEdgeArrow(ctx, c) {
-  const z = c.view.zoom;
-  const sx = (c.hintTarget.x - c.view.x) * z;
-  const sy = (c.hintTarget.y - c.view.y) * z;
-  const top = TOP + 4;
-  const bottom = H - BOT - 8;
-  if (sx > 20 && sx < W - 20 && sy > top && sy < bottom) return; // on screen: the arrow above it is enough
-  const cx = W / 2;
-  const cy = (top + bottom) / 2;
-  const a = Math.atan2(sy - cy, sx - cx);
-  const ex = clamp(cx + Math.cos(a) * 1000, 26, W - 26);
-  const ey = clamp(cy + Math.sin(a) * 1000, top + 16, bottom - 16);
-  ctx.save();
-  ctx.translate(ex, ey);
-  ctx.rotate(a);
-  ctx.fillStyle = "#f3c35a";
-  ctx.strokeStyle = INK;
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.moveTo(16, 0);
-  ctx.lineTo(-10, -12);
-  ctx.lineTo(-4, 0);
-  ctx.lineTo(-10, 12);
-  ctx.closePath();
-  ctx.fill();
-  ctx.stroke();
-  ctx.restore();
-}
-
-function drawZones(ctx, c) {
-  const season = c.over ? "winter" : c.season();
-  ctx.fillStyle = groundPattern(ctx, season);
-  ctx.fillRect(0, 0, W, H);
-  // Forest floor, the quarry's gravel and the tilled fields
-  ctx.fillStyle = "rgba(30, 60, 25, 0.28)";
-  ctx.fillRect(0, 0, 4.2 * T, H);
-  ctx.fillStyle = "#8a8378";
-  ctx.fillRect(15 * T, 0, 5 * T, 4.6 * T);
-  ctx.fillStyle = "#77706a";
-  for (let i = 0; i < 70; i++) ctx.fillRect(15 * T + ((i * 37) % (5 * T)), (i * 23) % Math.round(4.6 * T), 2, 2);
-  ctx.fillStyle = "#6e4f2c";
-  ctx.fillRect(15 * T, 8.7 * T, 5 * T, 5.3 * T);
-  ctx.fillStyle = "#5a3f22";
-  for (let y = 8.7 * T + 4; y < H; y += 8) ctx.fillRect(15 * T, y, 5 * T, 2);
-  // A dirt path from the Hall to each part of the map
-  ctx.fillStyle = "rgba(150, 110, 60, 0.45)";
-  ctx.fillRect(4.2 * T, HALL.y + 22, 10.8 * T, 14);
-  ctx.fillRect(HALL.x - 7, 2.2 * T + 20, 14, HALL.y - 2.2 * T);
-  ctx.fillRect(HALL.x - 7, HALL.y + 22, 14, 4.8 * T);
-}
-
-function drawWorld(ctx, c, r) {
-  drawZones(ctx, c);
-
-  // Things are drawn back to front by their feet, so nearer things overlap farther ones
-  const items = [];
-  const add = (y, fn) => items.push({ y, fn });
-
-  // The Hall
-  add(HALL.y + 26, () => {
-    building(ctx, HALL.x, HALL.y, { w: 70, h: 54, roof: "#7a2e22", stone: true });
-    label(ctx, "HALL", HALL.x, HALL.y + 34);
-  });
-
-  for (const b of Object.values(c.buildings)) {
-    const def = BUILDINGS[b.key];
-    if (!c.unlocked(b.key)) continue;
-    if (!b.built) {
-      add(b.y - 30, () => drawLot(ctx, c, b, def));
-      continue;
-    }
-    add(b.y + 20, () => {
-      building(ctx, b.x, b.y, { w: 52, h: 42, roof: def.roof, sign: def.sign, stone: def.stone });
-      label(ctx, def.name, b.x, b.y + 30);
-      if (def.store && b.stock > 0) {
-        icon(ctx, def.store, b.x - 30, b.y + 12, 12);
-        text(ctx, String(b.stock), b.x - 22, b.y + 12, 10, CREAM);
-      }
-      if (b.key === "kitchen" && b.stock > 0) {
-        icon(ctx, "meal", b.x - 30, b.y + 12, 12);
-        text(ctx, String(b.stock), b.x - 22, b.y + 12, 10, CREAM);
-      }
-      if (b.key === "tavern") {
-        c.visitors.forEach((v, i) => person(ctx, b.x - 14 + i * 22, b.y + 46, { shirt: VISITOR_SHIRT, shirt2: "#5e4630", scale: 1.5 }));
-      }
-    });
-  }
-
-  c.houses.forEach((h, i) => {
-    if (h.built) {
-      add(h.y + 14, () => {
-        sprite(ctx, h.damaged ? "houseBroken" : "house", h.x, h.y + 16, 2);
-        if (h.damaged) icon(ctx, "alert", h.x + 14, h.y - 18, 10);
-      });
-    } else if (i < c.housePlots()) add(h.y - 30, () => drawHousePlot(ctx, c, h));
-  });
-
-  for (const t of c.trees) add(t.y, () => sprite(ctx, t.grown ? "tree" : "stump", t.x, t.y + 4, 2.2));
-  for (const k of c.rocks) add(k.y, () => sprite(ctx, k.left > 0 ? "rock" : "rubble", k.x, k.y + 4, 1.6 + 0.2 * k.left));
-  for (const q of c.crops) {
-    if (!q.planted) {
-      add(q.y - 20, () => drawFieldPlot(ctx, c, q));
-      continue;
-    }
-    add(q.y - 20, () => {
-      ctx.fillStyle = "#4a3418";
-      ctx.beginPath();
-      ctx.ellipse(q.x, q.y + 1, 16, 10, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#6e4f2c";
-      ctx.beginPath();
-      ctx.ellipse(q.x, q.y, 14, 8, 0, 0, Math.PI * 2);
-      ctx.fill();
-      if (q.growth >= 1) sprite(ctx, "crop", q.x, q.y + 12, 1.6);
-      else if (q.growth > 0.35) sprite(ctx, "sprout", q.x, q.y + 12, 1.6);
-    });
-  }
-
-  for (const v of c.villagers) {
-    add(v.y, () => {
-      const job = JOBS[v.job];
-      const bob = Math.sin(v.walk * 14) > 0 ? -1 : 0;
-      person(ctx, v.x, v.y, { shirt: job.shirt, shirt2: job.shirt2, scale: 1.5, bob });
-      const tag = v.sick ? "sick" : c.cfg.hunger && v.hunger >= 60 ? "hungry" : v.blocked ? "alert" : v.carry || null;
-      if (tag) icon(ctx, tag, v.x + 10, v.y - 26, 10);
-      if (v.fed > 0 && !v.sick) icon(ctx, "star", v.x - 10, v.y - 26, 8);
-    });
-  }
-
-  // You
-  const p = c.player;
-  add(p.y, () => {
-    ctx.fillStyle = "rgba(243, 195, 90, 0.45)";
-    ctx.beginPath();
-    ctx.ellipse(p.x, p.y, 12, 4, 0, 0, Math.PI * 2);
-    ctx.fill();
-    const bob = Math.sin(p.walk * 14) > 0 ? -1 : 0;
-    person(ctx, p.x, p.y, { shirt: "#c94a3a", shirt2: "#8f2f22", hat: true, scale: 2, bob });
-  });
-
-  items.sort((a, b) => a.y - b.y);
-  for (const it of items) it.fn();
-
-  // Where the NEXT bar is pointing
-  if (c.hintTarget && !c.over) arrowDown(ctx, c.hintTarget.x, c.hintTarget.y - 22 + Math.sin(c.clock * 6) * 3);
-
-  // The minigame bar: stop the marker inside the green
-  if (c.mg) {
-    const mg = c.mg;
-    const bx = clamp(p.x - 40, 4, W - 84);
-    const by = p.y - 50;
-    ctx.fillStyle = INK;
-    ctx.fillRect(bx - 2, by - 2, 84, 12);
-    ctx.fillStyle = mg.cool > 0 ? "#b8442e" : "#d4bd8f";
-    ctx.fillRect(bx, by, 80, 8);
-    ctx.fillStyle = "#5f8a3c";
-    ctx.fillRect(bx + (mg.zoneC - mg.zoneW / 2) * 80, by, mg.zoneW * 80, 8);
-    ctx.fillStyle = INK;
-    ctx.fillRect(Math.round(bx + mg.phase * 80 - 1.5), by - 3, 3, 14);
-  }
-}
-
-function drawCost(ctx, cost, x, y) {
-  const entries = Object.entries(cost);
-  let cx = x - (entries.length * 24) / 2 + 6;
-  for (const [k, n] of entries) {
-    icon(ctx, k, cx, y, 10);
-    text(ctx, String(n), cx + 7, y, 9, INK);
-    cx += 24;
-  }
-}
-
-function drawLot(ctx, c, b, def) {
-  ctx.strokeStyle = "rgba(243, 230, 201, 0.6)";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([4, 3]);
-  ctx.strokeRect(b.x - 26, b.y - 22, 52, 44);
-  ctx.setLineDash([]);
-  if (b.vines) {
-    sprite(ctx, "bush", b.x - 8, b.y + 12, 1.6);
-    sprite(ctx, "bush", b.x + 10, b.y + 16, 1.4);
-  } else {
-    if (c.canPay(def.cost)) {
-      // Ready to build: make it obvious
-      ctx.strokeStyle = `rgba(243, 195, 90, ${0.6 + 0.4 * Math.sin(c.clock * 5)})`;
-      ctx.lineWidth = 3;
-      ctx.strokeRect(b.x - 28, b.y - 24, 56, 48);
-    }
-    ctx.fillStyle = "rgba(243, 230, 201, 0.75)";
-    ctx.fillRect(b.x - 24, b.y - 4, 48, 14);
-    drawCost(ctx, def.cost, b.x, b.y + 3);
-  }
-  label(ctx, def.name, b.x, b.y + 30);
-}
-
-function drawFieldPlot(ctx, c, q) {
-  ctx.strokeStyle = "rgba(243, 230, 201, 0.55)";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([3, 3]);
-  ctx.strokeRect(q.x - 16, q.y - 10, 32, 22);
-  ctx.setLineDash([]);
-  if (c.canPay(FIELD_COST) && c.lowest() === "food") {
-    ctx.strokeStyle = `rgba(243, 195, 90, ${0.5 + 0.4 * Math.sin(c.clock * 5)})`;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(q.x - 18, q.y - 12, 36, 26);
-  }
-  icon(ctx, "food", q.x - 5, q.y + 1, 10);
-  text(ctx, "+", q.x + 6, q.y + 1, 10, CREAM);
-}
-
-function drawHousePlot(ctx, c, h) {
-  ctx.strokeStyle = "rgba(243, 230, 201, 0.5)";
-  ctx.lineWidth = 1;
-  ctx.setLineDash([3, 3]);
-  ctx.strokeRect(h.x - 16, h.y - 14, 32, 30);
-  ctx.setLineDash([]);
-  if (c.canPay(HOUSE_COST) && c.beds() < Math.max(c.cfg.pop, c.villagers.length)) {
-    ctx.strokeStyle = `rgba(243, 195, 90, ${0.5 + 0.4 * Math.sin(c.clock * 5)})`;
-    ctx.lineWidth = 2;
-    ctx.strokeRect(h.x - 18, h.y - 16, 36, 34);
-  }
-  icon(ctx, "bed", h.x, h.y, 14);
-}
-
-// The prompt and messages around you stay at normal size even though the camera zooms
-function drawPlayerText(ctx, c) {
-  const p = c.player;
-  const z = c.view.zoom;
-  const sx = (p.x - c.view.x) * z;
-  const sy = (p.y - c.view.y) * z;
-  const prompt = c.mg ? "Press Space when the marker is in the green" : c.promptFor(c.targetAt(p));
-  if (prompt && !c.over) pill(ctx, prompt, sx, sy - (c.mg ? 120 : 82), "#f3c35a");
-  if (c.msg) pill(ctx, c.msg.text, sx, sy + 22, CREAM);
-}
-
-function drawMinimap(ctx, c) {
-  const s = 0.18;
-  const mw = W * s;
-  const mh = H * s;
-  const x0 = W - mw - 8;
-  const y0 = H - BOT - mh - 8;
-  ctx.save();
-  ctx.fillStyle = SHADE;
-  ctx.fillRect(x0 - 3, y0 - 3, mw + 6, mh + 6);
-  ctx.translate(x0, y0);
-  ctx.scale(s, s);
-  ctx.fillStyle = "#6f9447";
-  ctx.fillRect(0, 0, W, H);
-  ctx.fillStyle = "#3f6a2e";
-  ctx.fillRect(0, 0, 4.2 * T, H);
-  ctx.fillStyle = "#8a8378";
-  ctx.fillRect(15 * T, 0, 5 * T, 4.6 * T);
-  ctx.fillStyle = "#6e4f2c";
-  ctx.fillRect(15 * T, 8.7 * T, 5 * T, 5.3 * T);
-  ctx.fillStyle = "#7a2e22";
-  ctx.fillRect(HALL.x - 30, HALL.y - 26, 60, 52);
-  for (const b of Object.values(c.buildings)) {
-    if (!c.unlocked(b.key)) continue;
-    ctx.fillStyle = b.built ? BUILDINGS[b.key].roof : "rgba(40, 70, 30, 0.9)";
-    ctx.fillRect(b.x - 22, b.y - 18, 44, 36);
-  }
-  for (const h of c.houses) if (h.built) {
-    ctx.fillStyle = h.damaged ? "#e0603a" : "#a8402e";
-    ctx.fillRect(h.x - 14, h.y - 12, 28, 24);
-  }
-  ctx.fillStyle = CREAM;
-  for (const v of c.villagers) ctx.fillRect(v.x - 9, v.y - 9, 18, 18);
-  ctx.fillStyle = "#f3c35a";
-  ctx.fillRect(c.player.x - 16, c.player.y - 16, 32, 32);
-  ctx.strokeStyle = CREAM;
-  ctx.lineWidth = 8;
-  ctx.strokeRect(c.view.x, c.view.y + TOP / c.view.zoom, W / c.view.zoom, (H - TOP - BOT) / c.view.zoom);
-  ctx.restore();
-}
-
-function drawHud(ctx, c) {
-  // Top strip: the calendar on the left, winter's checklist on the right
-  ctx.fillStyle = SHADE;
-  ctx.fillRect(0, 0, W, 26);
-  const season = c.season();
-  text(ctx, `${season.toUpperCase()}  DAY ${c.day()}/${DAYS}`, 8, 13, 11, CREAM);
-  // Calendar bar: three season bands filling toward the snowflake
-  const bx = 140;
-  const bw = 128;
-  const bands = ["#7aa04e", "#c9b048", "#c07a32"];
-  bands.forEach((col, i) => {
-    ctx.fillStyle = "#3a2418";
-    ctx.fillRect(bx + (i * bw) / 3, 7, bw / 3 - 2, 12);
-  });
-  const frac = Math.min(1, c.clock / (DAYS * DAY));
-  bands.forEach((col, i) => {
-    const segStart = i / 3;
-    const fill = clamp((frac - segStart) * 3, 0, 1);
-    ctx.fillStyle = col;
-    ctx.fillRect(bx + (i * bw) / 3, 7, (bw / 3 - 2) * fill, 12);
-  });
-  icon(ctx, "snow", bx + bw + 10, 13, 14);
-
-  const needs = c.needs();
-  // Food and wood still in your bag show as "+N": they count once you drop them at the Hall
-  const cells = [
-    ["person", needs.people, 0],
-    ["bed", needs.beds, 0],
-    ["food", needs.food, c.bagCount("food") + c.bagCount("meal")],
-    ["log", needs.wood, c.bagCount("log")],
-  ];
-  let x = 298;
-  text(ctx, "WINTER:", x, 13, 10, "#d4bd8f");
-  x += 54;
-  for (const [ic, [have, need], inBag] of cells) {
-    const ok = have >= need;
-    ctx.fillStyle = ok ? "#5f8a3c" : "rgba(184, 68, 46, 0.8)";
-    ctx.fillRect(x, 4, 88, 18);
-    if (ic === "person") personIcon(ctx, x + 10, 13, 14, "#c94a3a");
-    else icon(ctx, ic, x + 10, 13, 14);
-    text(ctx, `${Math.min(have, 999)}/${need}`, x + 20, 13, 11, CREAM);
-    if (inBag) text(ctx, `+${inBag}`, x + 86, 13, 9, "#f3c35a", "right");
-    x += 92;
-  }
-
-  // NEXT bar
-  const hint = c.nextStep();
-  const ready = c.ready();
-  ctx.fillStyle = ready ? "rgba(201, 224, 138, 0.95)" : "rgba(243, 230, 201, 0.94)";
-  ctx.fillRect(0, 26, W, 22);
-  fitText(ctx, `NEXT: ${hint}`, 6, 37, 13, W - 12, INK);
-
-  // Bottom strip: your bag, spare tools at the Hall, and who's working
-  ctx.fillStyle = SHADE;
-  ctx.fillRect(0, H - BOT, W, BOT);
-  const y = H - BOT / 2;
-  x = 6;
-  text(ctx, "BAG", x, y, 9, "#d4bd8f");
-  x += 24;
-  c.player.slots.forEach((s, i) => {
-    ctx.strokeStyle = "#d4bd8f";
-    ctx.lineWidth = 1;
-    ctx.strokeRect(x + i * 34 + 0.5, y - 9.5, 31, 19);
-    if (s) {
-      icon(ctx, s.item, x + i * 34 + 8, y, 11);
-      text(ctx, String(s.n), x + i * 34 + 15, y, 9, CREAM);
-    }
-  });
-  x += 142;
-  // The Hall's stockpile: what building and hiring pay from after your bag, plus spare tools
-  text(ctx, "HALL", x, y, 9, "#d4bd8f");
-  x += 30;
-  const items = c.cfg.hunger ? ["log", "stone", "food", "meal"] : ["log", "stone", "food"];
-  const tools = [...new Set(c.cfg.jobs.map((j) => JOBS[j].tool).filter(Boolean))];
-  for (const item of [...items, ...tools]) {
-    const n = item === "meal" ? c.buildings.kitchen.stock : c.stock[item];
-    icon(ctx, item, x + 6, y, 11);
-    text(ctx, String(n), x + 13, y, 9, CREAM);
-    x += n >= 100 ? 36 : n >= 10 ? 31 : 26;
-  }
-  x += 6;
-  text(ctx, "WORK", x, y, 9, "#d4bd8f");
-  x += 32;
-  for (const job of c.cfg.jobs) {
-    const hired = c.villagersIn(job).length;
-    const n = c.workingCount(job);
-    ctx.globalAlpha = hired ? 1 : 0.35;
-    personIcon(ctx, x + 5, y, 12, JOBS[job].shirt);
-    text(ctx, hired ? String(n) : "-", x + 12, y, 9, n < hired ? "#f08a6e" : CREAM);
-    ctx.globalAlpha = 1;
-    x += 21;
-  }
-}
+const CHEATS = {
+  RICH: "+2000 wood and stone, +20 tomatoes",
+  CROWD: "5 idle villagers",
+  TOOLS: "legendary tools for you and everyone",
+  ARMY: "4 soldiers with iron swords (and Barracks)",
+  BLOOM: "four 9/9/9/9 seeds",
+  HAUL: "every hut's pile straight to the Hall",
+};
 
 export default {
   id: "colony",
   title: "Life in the Colony",
-  kicker: "Ready for winter",
+  kicker: "Arcade run",
   accent: "var(--brass)",
-  blurb: "Grow a frontier village and get everyone housed, fed and warm before the first snow.",
+  blurb: "Grow a village that out-works you, then race for three trophies against the clock.",
   solo: true,
+  timeTrial: true,
   hiRes: true,
-  levelSelect: 10,
-  cheats: Object.fromEntries(Object.entries(CHEATS).map(([code, does]) => [code, { does, run: (r) => r.colony.cheat(code) }])),
-  levelName: (n) => `Year ${n}`,
-  scoreText: (n) => `Winters survived: ${n}`,
   howTo: [
-    "Each round is a year. The first snow falls after 9 days — before it does, you need enough people, a bed for each, and enough food and firewood. The WINTER boxes at the top turn green as you get there.",
-    "Walk with the arrow keys and press Space at whatever you're standing next to. The yellow prompt above you says what Space will do.",
-    "Gathering is a timing game: press Space again when the marker is in the green.",
-    "Build on a lot by pressing Space to clear it, then Space again. Hire people at the Tavern. Workers need a tool from the Smithy, then gather for you.",
-    "Follow the NEXT bar and the yellow arrow — they always say what to do next.",
-    "Make it and the village carries on into a harder year. How many winters can you last?",
+    "Your time is your score: collect all three trophies as fast as you can — the Resource Master sculpture, a perfect 10/10/10/10 tomato, and the raid.",
+    "The village is in the middle. Walk off an edge to travel: the Forest (west), the Mine (north), the Farm (south) and the Raid Room (east).",
+    "Space does whatever you're next to: chop, mine, harvest, pick up, store, hire. Shift opens the build menu — build as many huts as you like.",
+    "Hire villagers at the Tavern (you need a building with an empty job), then press Space at that building to put one to work. One villager per hut.",
+    "The Smithy upgrades tools: Stone, Iron, Legendary. Every villager's tool multiplies what they bring back. Couriers carry hut piles to the Hall.",
+    "At the Farm, cross two seeds on the bench: the child gets each stat from a parent, then one stat moves up or down by one. Plant your best to get more seeds.",
+    "In the raid: arrows to move and dodge, Shift to block, click (or Space) to attack. Lose and your soldiers are wounded until a Healer treats them with tomatoes.",
   ],
   width: W,
   height: H,
   sides: [
     {
       name: "Founder",
-      emoji: "🏡",
-      goal: "Before the first snow: enough people, a bed for each, and enough food and firewood. Every year asks for more.",
-      controls: { dirs: "walk", action: "work / build / hire — whatever you're standing at" },
-      pointer: null,
-      pad: { dirs: "four", action: "Act" },
-      bot: founderBot,
+      emoji: "🏆",
+      goal: "Win all three trophies as fast as you can. Do every job yourself — or hire villagers, who are faster.",
+      controls: { dirs: "walk (dodge in the raid)", action: "act / attack", action2: "build menu / block" },
+      pointer: "aim",
+      pointerHint: "Click to attack in the raid",
+      pad: { dirs: "four", action: "Act", action2: "Build" },
     },
   ],
+  cheats: Object.fromEntries(Object.entries(CHEATS).map(([code, does]) => [code, { does, run: (r) => r.colony.cheat(code) }])),
   createRound,
 };

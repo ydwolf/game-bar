@@ -54,6 +54,9 @@ function renderMenu() {
 
 // ---------- Seat picker ----------
 
+// Append children, skipping the ones a condition left out
+const append = (parent, ...kids) => parent.append(...kids.filter((k) => k != null));
+
 function renderSoloSetup(game) {
   const root = $("setup");
   root.innerHTML = "";
@@ -69,13 +72,14 @@ function renderSoloSetup(game) {
       return o;
     })
   );
-  root.append(
+  append(
+    root,
     el(
       "header",
       { class: "game-heading" },
       el("p", { class: "kicker" }, game.kicker),
       el("h1", {}, game.title),
-      el("p", { class: "setup-sub" }, "One player. How long can you last?")
+      el("p", { class: "setup-sub" }, game.timeTrial ? "One player. How fast can you do it?" : "One player. How long can you last?")
     ),
     game.howTo ? el("ol", { class: "howto" }, ...game.howTo.map((line) => el("li", {}, line))) : null,
     el(
