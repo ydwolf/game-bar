@@ -1,6 +1,21 @@
-# Delegation Log
+# The Game Bar — Delegation Log
 
-A record of what I asked Claude (Claude Code, desktop app) to do, what it produced, and how the result was checked.
+| | |
+|---|---|
+| **Owner** | Yosef Wolf |
+| **Project** | The Game Bar — https://games.graydates.com |
+| **Repository** | https://github.com/ydwolf/game-bar |
+| **Assistant** | Claude (Claude Code, desktop app) |
+| **Period** | September 23, 2026 – present |
+| **Companion document** | `IMPROVEMENT_LOG.md` (Wave 2 changes, game by game) |
+
+This log records each piece of work I delegated, in date order. Every entry has three parts:
+
+- **Asked:** what I requested, in my own words where possible.
+- **Produced:** what was built or changed.
+- **Verified:** how the result was checked, including anything that failed or remains untested.
+
+Design decisions, priorities and playtest findings are mine; implementation and automated testing were delegated.
 
 ---
 
