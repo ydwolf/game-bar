@@ -579,3 +579,20 @@ All six other games' fairness runs still pass. The setup screen lists the new co
 - `sound.js` gained nine sounds: step, rustle, clink, anvil, sizzle, bird, drip, cricket and crackle.
 
 **Verified:** In the browser, every new sound and every zone's background played without errors. In Node, the colony key tests and all six fairness runs still pass, since sound is a no-op there. Not yet heard by a person. Committed locally; not pushed, because Netlify deploys are paused.
+
+## 26. Moving hosting to Cloudflare Pages — 2026-10-12
+
+**Asked:** "The teacher said I can switch, so what should I do?" The instructor approved moving off Netlify after Netlify paused deploys for credit limits.
+
+**Produced:**
+- **Repo ready for Cloudflare Pages:**
+  - `build.sh` stamps the live commit into `version.json` for the footer. It reads Cloudflare's `CF_PAGES_COMMIT_SHA` or Netlify's `COMMIT_REF`, so it works on either host.
+  - `_headers` carries the same security headers as `netlify.toml`.
+  - `netlify.toml` now calls the same script, so Netlify still works too.
+- **Docs:** the README's deploy section and the improvement log were updated.
+- **Steps for the user:**
+  - connect the repo in Cloudflare Pages (no framework, build command `sh build.sh`, output directory `/`);
+  - add `games.graydates.com` as a custom domain;
+  - point the `games` CNAME in GoDaddy at the new `*.pages.dev` address.
+
+**Verified:** `build.sh` was run locally with a sample Cloudflare commit ID and wrote the expected `version.json`. Checking the live site waits on the user's Cloudflare setup.

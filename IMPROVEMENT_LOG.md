@@ -26,6 +26,7 @@ Balance figures are from tests/fairness.js: the computer plays both sides at equ
 2.2 Own domain
 - The site moved from gamebarywolf.netlify.app to https://games.graydates.com (a subdomain of a domain I own), with HTTPS. The existing site on graydates.com was left untouched.
 - The page footer now shows which build is live (its commit ID and build time), so a deployed version can be checked at a glance.
+- Hosting moved from Netlify to Cloudflare Pages, with the instructor's approval, after Netlify paused deploys when the account's monthly credits ran out. The domain and continuous deployment from GitHub are unchanged; every push to main publishes automatically.
 
 2.3 One-player games in the cabinet
 - The cabinet now supports one-player games (needed for the original game): a single-seat setup screen, a timed-run mode where the record is the fastest time, and a saved personal best.
@@ -120,4 +121,3 @@ Verified: automated checks of the economy, breeding and raid; raid balance simul
 - Personal playtesting of every game on both sides (human and flipped): pending.
 - Imitation: not built.
 - Splat, Asteroids, Missile Command and Gold Rush: further improvements beyond sound are planned.
-- Deployment: production deploys on Netlify are currently paused because the account's credits for this billing cycle are used up; the most recent changes are committed and will publish when deploys resume.

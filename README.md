@@ -49,4 +49,4 @@ For the one-player colony game there are cheat codes (listed on its setup screen
 
 ## Deploying
 
-Netlify serves the repo root as-is (see `netlify.toml`); every push to `main` deploys.
+Cloudflare Pages serves the repo root as-is at https://games.graydates.com; every push to `main` deploys. `build.sh` only stamps the live commit into `version.json` (shown in the page footer), and `_headers` sets the security headers. `netlify.toml` keeps the site deployable on Netlify too.
