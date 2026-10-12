@@ -8,6 +8,7 @@ const W = N * S;
 const ROUND_TIME = 30;
 const DASH_COOLDOWN = 4;
 const GROW_EVERY = 3;
+const PEAR_SLOWER = [1.0, 0.97, 0.96, 0.95, 0.95]; // pear step ÷ snake step, per level (below 1: a bit quicker)
 
 const key = (x, y) => y * N + x;
 const inBounds = (x, y) => x >= 0 && y >= 0 && x < N && y < N;
@@ -32,10 +33,10 @@ function placeCacti(count, avoid) {
 }
 
 function createRound({ level, inputs }) {
-  // The pear starts a little quicker than the snake (the snake has to corner it with its
-  // body); by level 5 the snake is the faster one.
+  // The pear runs about as fast as the snake (a little quicker at higher levels, where the
+  // snake is faster and the cacti thicker); tuned with tests/fairness.js.
   const snakeStep = Math.max(0.085, 0.13 - 0.011 * (level - 1));
-  const pearStep = snakeStep * lerp(0.9, 1.04, (level - 1) / 4);
+  const pearStep = snakeStep * PEAR_SLOWER[level - 1];
 
   const r = {
     level,
@@ -208,21 +209,29 @@ function snakeBot(r, input, skill) {
 }
 
 function pearBot(r, input, skill) {
-  // Decides once per step, like the snake bot. Looks for room to run, not just distance,
-  // and steers clear of where the snake's head is about to be.
+  // Runs in straight lines like a person would, so a human snake can read it: it keeps its
+  // direction for a few cells, and only re-thinks when the way ahead is blocked, the snake
+  // gets close, or the run is over. When it does choose, it looks for room to run and steers
+  // clear of where the snake's head is about to be.
   const attention = lerp(0.55, 0.95, skill);
   let lastPos = null;
-  let lastHead = null;
+  let run = 0; // cells left before it considers turning
 
   return {
     update() {
       if (r.winner !== null) return;
-      if (r.pear === lastPos && r.snake[0] === lastHead) return;
+      if (r.pear === lastPos) return;
       lastPos = r.pear;
-      lastHead = r.snake[0];
-      if (r.pdir && !chance(attention)) return;
 
       const head = r.snake[0];
+      const near = Math.abs(head.x - r.pear.x) + Math.abs(head.y - r.pear.y);
+      const ahead = r.pdir && { x: r.pear.x + DIRS[r.pdir][0], y: r.pear.y + DIRS[r.pdir][1] };
+      const blocked = !ahead || !inBounds(ahead.x, ahead.y) || r.cacti.has(key(ahead.x, ahead.y)) || r.snake.some((s) => s.x === ahead.x && s.y === ahead.y);
+      run--;
+      if (!blocked && run > 0 && near > 4) return;
+      if (!blocked && !chance(attention)) return;
+      run = 3 + Math.floor(rand(0, 4));
+
       const next = { x: head.x + DIRS[r.dir][0], y: head.y + DIRS[r.dir][1] };
       const body = new Set(r.snake.slice(1).map((s) => key(s.x, s.y)));
       const open = (x, y) => !r.cacti.has(key(x, y)) && !body.has(key(x, y));
@@ -240,6 +249,7 @@ function pearBot(r, input, skill) {
         score += Math.min(floodCount(N, N, x, y, pearPassable, 60), 60) * lerp(0.05, 0.25, skill);
         if (x === 0 || y === 0 || x === N - 1 || y === N - 1) score -= 2 * skill;
         score += rand(0, (1 - skill) * 6);
+        if (d === r.pdir) score += 1.5; // prefer to keep going: fewer jittery turns
         if (!best || score > best.score) best = { d, score };
       }
       if (best && best.d !== r.pdir) input.press(best.d);
@@ -284,6 +294,19 @@ function drawPear(ctx, r) {
   ctx.fill();
   ctx.fillStyle = "#f6dfa0";
   for (const [dx, dy] of [[-3, -2], [3, 0], [-1, 4], [4, 5], [-4, 3]]) ctx.fillRect(cx + dx, cy + dy, 1.5, 1.5);
+  // Which way it's rolling: a little arrow just outside it, so the snake can head it off
+  if (r.pdir) {
+    const [dx, dy] = DIRS[r.pdir];
+    const ax = cx + dx * 15;
+    const ay = cy + 1 + dy * 15;
+    ctx.fillStyle = "rgba(184, 58, 82, 0.85)";
+    ctx.beginPath();
+    ctx.moveTo(ax + dx * 5, ay + dy * 5);
+    ctx.lineTo(ax - dy * 5 - dx * 2, ay + dx * 5 - dy * 2);
+    ctx.lineTo(ax + dy * 5 - dx * 2, ay - dx * 5 - dy * 2);
+    ctx.closePath();
+    ctx.fill();
+  }
 }
 
 function draw(ctx, r) {

@@ -507,3 +507,33 @@ The cabinet gained a time-trial mode, where a lower best time is better, saved s
 - B, then Space, starts placing; X cancels it, and Space builds.
 
 All six other games' fairness runs still pass. The setup screen lists the new controls and SEEDS, with no console errors.
+
+## 23. Playtest fixes: Snake's Pear and Breakout's bricks and ball — 2026-10-11
+
+**Asked:**
+- "It's very hard in Snake to win as the snake when the fruit is the computer — the fruit moves super sporadically."
+- "Breakout: there should be a better indicator of when a brick is ready to be placed; the bar isn't clear and I don't know at what point I get a brick."
+- "There's no way for the paddle to win; the time is too short for how slow the ball moves. The ball should at least speed up."
+
+**Found:**
+- **Snake:** the computer Pear re-decided its direction on every single step, with random noise added, so it zig-zagged in ways no person could read. It was also faster than the Snake on level 1.
+- **Breakout:** the Mason's "MORTAR" bar never said how many bricks were ready or when the next would come.
+- The ball kept the same speed all round.
+
+**Produced:**
+- **Snake:**
+  - The Pear now runs in straight lines, keeping its direction for 3–6 cells. It only turns early if the way is blocked or the Snake comes within 4 cells, and it prefers to keep going when it does choose.
+  - A small arrow beside the Pear shows which way it's rolling, so the Snake can head it off.
+  - Pear speed is now a per-level table (`PEAR_SLOWER`).
+- **Breakout, Mason's supply:** a row of brick slots at the top.
+  - Full slots are bricks ready to place, and the next slot visibly fills up.
+  - The labels read "MASON: 3 BRICKS READY", "next brick in 2s" and "TUMBLEWEED READY" (or "tumbleweed at 3 bricks").
+  - The gap under the Mason's trowel lights green when a brick can go there right now, and red when it can't (no brick ready, or the ball is too close).
+- **Breakout, the ball:** it gets 3% faster every time the Paddle hits it, up to 1.5×. "BALL ×1.2" is shown on screen and in the status line, and both sides' goals mention it.
+
+**Verified:**
+- **Rebalancing:** both changes tipped the computer-vs-computer balance, so I re-tuned with per-level sweeps.
+  - Snake: Pear speed went from 1.0× the Snake's at level 1 to 0.95× by level 5 (meaning slightly faster). The Snake now wins 41–59%.
+  - Breakout: a speeding ball first gave the computer Paddle 95–100% of rounds. With a gentler speed-up and faster Mason bricks (0.17 per second at level 1 up to 0.42 at level 5), the Paddle wins 44–58%.
+- **In the browser:** frames of both games, including the brick slots, the green gap and the Pear's arrow.
+- *Still to do:* the user should replay both as the human side. For a human, being able to read the Pear and the ball speeding up matter more than raw speed; the computer players already saw everything.

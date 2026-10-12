@@ -17,6 +17,8 @@ const ROUND_TIME = 60;
 const WEED_COST = 3;
 const WEED_Y = H * 0.6;
 const SAFE_GAP = 26; // the mason can't brick up a spot right next to the ball
+const SPEED_UP = 1.03; // the ball gets 3% faster every time the paddle hits it…
+const MAX_SPEED = 1.5; // …up to 1.5× its starting speed
 
 function createRound({ level, inputs }) {
   const r = {
@@ -26,10 +28,11 @@ function createRound({ level, inputs }) {
     paddle: { x: W / 2, y: H - 40, w: 94 - 4 * (level - 1), h: 14, speed: 620 },
     ball: { x: W / 2, y: 0, vx: 0, vy: 0, r: 7, stuck: true },
     speed: 320 + 12 * (level - 1),
+    baseSpeed: 320 + 12 * (level - 1),
     lives: 3,
     mortar: 1,
     mortarMax: 5,
-    regen: [0.065, 0.085, 0.115, 0.16, 0.22][level - 1], // tuned with tests/fairness.js
+    regen: [0.17, 0.21, 0.26, 0.33, 0.42][level - 1], // bricks per second, tuned with tests/fairness.js
     weed: null,
     flash: 0, // brief red flash on a refused rebuild
     smashed: 0,
@@ -118,6 +121,7 @@ function createRound({ level, inputs }) {
     const p = r.paddle;
     if (b.vy > 0 && b.y + b.r >= p.y && b.y - b.r <= p.y + p.h && Math.abs(b.x - p.x) <= p.w / 2 + b.r) {
       const a = clamp((b.x - p.x) / (p.w / 2), -1, 1) * 1.05;
+      r.speed = Math.min(r.baseSpeed * MAX_SPEED, r.speed * SPEED_UP);
       b.vx = r.speed * Math.sin(a);
       b.vy = -r.speed * Math.cos(a);
       b.y = p.y - b.r;
@@ -202,7 +206,7 @@ function createRound({ level, inputs }) {
 
   r.status = () => {
     const thinnest = Math.min(...columnCounts(r));
-    return `${formatTime(r.time)} · Balls ${"●".repeat(r.lives)} · Thinnest column ${thinnest}/${ROWS} · Mortar ${Math.floor(r.mortar)}`;
+    return `${formatTime(r.time)} · Balls ${"●".repeat(r.lives)} · Ball speed ×${(r.speed / r.baseSpeed).toFixed(1)} · Thinnest column ${thinnest}/${ROWS} · Bricks ready ${Math.floor(r.mortar)}`;
   };
   r.draw = (ctx) => draw(ctx, r);
   return r;
@@ -333,15 +337,8 @@ function draw(ctx, r) {
     ctx.fillRect(b.x + 2, b.y + BH - 4, BW - 4, 2);
   }
 
-  // Mortar bucket meter
-  ctx.fillStyle = "rgba(0,0,0,0.35)";
-  ctx.fillRect(LEFT, TOP - 26, 120, 10);
-  ctx.fillStyle = r.flash > 0 ? "#e0603a" : "#c9a45c";
-  ctx.fillRect(LEFT, TOP - 26, (120 * r.mortar) / r.mortarMax, 10);
-  ctx.fillStyle = "#f3e6c9";
-  ctx.font = '12px "Special Elite", monospace';
-  ctx.textAlign = "left";
-  ctx.fillText("MORTAR", LEFT + 128, TOP - 17);
+  drawMasonSupply(ctx, r);
+  drawTarget(ctx, r);
 
   if (r.weed) {
     const w = r.weed;
@@ -383,6 +380,74 @@ function draw(ctx, r) {
   ctx.stroke();
 }
 
+// The Mason's supply: one brick slot per brick you can hold. Full slots are bricks ready to
+// place; the next slot fills up as mortar mixes. A tumbleweed costs three bricks.
+function drawMasonSupply(ctx, r) {
+  const ready = Math.floor(r.mortar);
+  const frac = r.mortar - ready;
+  const sw = 34;
+  const sh = 16;
+  const x0 = LEFT;
+  const y0 = 14;
+  ctx.font = '12px "Special Elite", monospace';
+  ctx.textAlign = "left";
+  ctx.textBaseline = "middle";
+  ctx.fillStyle = "#f3e6c9";
+  ctx.fillText(`MASON: ${ready} BRICK${ready === 1 ? "" : "S"} READY`, x0, y0 + 6);
+  for (let i = 0; i < r.mortarMax; i++) {
+    const x = x0 + i * (sw + 5);
+    const y = y0 + 16;
+    ctx.fillStyle = "rgba(0, 0, 0, 0.4)";
+    ctx.beginPath();
+    ctx.roundRect(x, y, sw, sh, 3);
+    ctx.fill();
+    if (i < ready) {
+      ctx.fillStyle = r.flash > 0 ? "#e0603a" : "#d0692f";
+      ctx.beginPath();
+      ctx.roundRect(x, y, sw, sh, 3);
+      ctx.fill();
+      ctx.fillStyle = "rgba(255, 255, 255, 0.25)";
+      ctx.fillRect(x + 2, y + 2, sw - 4, 3);
+    } else if (i === ready) {
+      // Filling up: the next brick
+      ctx.fillStyle = "rgba(208, 105, 47, 0.45)";
+      ctx.fillRect(x, y + sh * (1 - frac), sw, sh * frac);
+      ctx.strokeStyle = "rgba(243, 230, 201, 0.5)";
+      ctx.setLineDash([3, 3]);
+      ctx.strokeRect(x + 0.5, y + 0.5, sw - 1, sh - 1);
+      ctx.setLineDash([]);
+    }
+  }
+  const next = ready < r.mortarMax ? `next brick in ${Math.ceil((1 - frac) / r.regen)}s` : "full";
+  const weed = ready >= WEED_COST ? "TUMBLEWEED READY" : `tumbleweed at ${WEED_COST} bricks`;
+  ctx.fillStyle = "#d4bd8f";
+  ctx.fillText(next, x0 + r.mortarMax * (sw + 5) + 4, y0 + 24);
+  ctx.textAlign = "right";
+  ctx.fillStyle = ready >= WEED_COST ? "#f3c35a" : "#d4bd8f";
+  ctx.fillText(weed, W - LEFT, y0 + 6);
+  ctx.fillStyle = "#f3e6c9";
+  ctx.fillText(`BALL ×${(r.speed / r.baseSpeed).toFixed(1)}`, W - LEFT, y0 + 24);
+  ctx.textBaseline = "alphabetic";
+}
+
+// Which gap the Mason's trowel is over: green if a brick can go there now
+function drawTarget(ctx, r) {
+  const c = r.cursors[1];
+  const col = Math.floor((c.x - LEFT) / (BW + GAP));
+  const row = Math.floor((c.y - TOP) / (BH + GAP));
+  if (col < 0 || row < 0 || col >= COLS || row >= ROWS) return;
+  const b = r.bricks[row * COLS + col];
+  if (b.alive) return;
+  const nx = clamp(r.ball.x, b.x, b.x + BW);
+  const ny = clamp(r.ball.y, b.y, b.y + BH);
+  const ok = r.mortar >= 1 && Math.hypot(r.ball.x - nx, r.ball.y - ny) >= r.ball.r + SAFE_GAP;
+  ctx.fillStyle = ok ? "rgba(127, 224, 122, 0.3)" : "rgba(224, 96, 58, 0.3)";
+  ctx.fillRect(b.x, b.y, BW, BH);
+  ctx.strokeStyle = ok ? "#7fe07a" : "#e0603a";
+  ctx.lineWidth = 2;
+  ctx.strokeRect(b.x + 1, b.y + 1, BW - 2, BH - 2);
+}
+
 export default {
   id: "breakout",
   title: "Breakout",
@@ -395,7 +460,7 @@ export default {
     {
       name: "Paddle",
       emoji: "🪵",
-      goal: `Drill through the wall and get the ball out the top within ${formatTime(ROUND_TIME)}. Lose 3 balls and the mason wins.`,
+      goal: `Drill through the wall and get the ball out the top within ${formatTime(ROUND_TIME)}. The ball speeds up every time you hit it. Lose 3 balls and the mason wins.`,
       controls: { dirs: "slide (← →)", action: "launch" },
       pointer: "x",
       pointerHint: "Mouse / drag to slide · click or tap to launch",
@@ -405,7 +470,7 @@ export default {
     {
       name: "Mason",
       emoji: "🧱",
-      goal: "Don't let the ball through the wall until time runs out. Patch holes with mortar; roll tumbleweeds at the ball.",
+      goal: "Don't let the ball through the wall until time runs out. Bricks build up over time (shown top left) — click a gap to patch it; 3 bricks rolls a tumbleweed at the ball.",
       controls: { dirs: "move the trowel", action: "rebuild brick", action2: "tumbleweed (3 mortar)" },
       pointer: "aim",
       pointerHint: "Click a gap to rebuild · right-click for a tumbleweed",
