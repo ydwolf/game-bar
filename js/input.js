@@ -4,7 +4,8 @@
 
 import { clamp, DIR_NAMES } from "./util.js";
 
-const ACTIONS = [...DIR_NAMES, "action", "action2"];
+// build/back are extra keys a one-player game can use (Life in the Colony: B to build, X to close)
+const ACTIONS = [...DIR_NAMES, "action", "action2", "build", "back"];
 
 export class Input {
   constructor() {
@@ -86,6 +87,8 @@ export const KEY_SCHEMES = {
     right: ["ArrowRight", "KeyD"],
     action: ["Space", "Enter"],
     action2: ["ShiftLeft", "ShiftRight", "KeyE"],
+    build: ["KeyB"],
+    back: ["KeyX", "Backspace"],
   },
   a: {
     up: ["KeyW"],
@@ -106,7 +109,7 @@ export const KEY_SCHEMES = {
 };
 
 export const SCHEME_LABELS = {
-  solo: { dirs: "Arrows / WASD", action: "Space", action2: "Shift" },
+  solo: { dirs: "Arrows / WASD", action: "Space", action2: "Shift", build: "B", back: "X" },
   a: { dirs: "WASD", action: "Space", action2: "Q" },
   b: { dirs: "Arrows", action: "Enter", action2: "/" },
 };

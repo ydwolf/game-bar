@@ -481,3 +481,29 @@ The cabinet gained a time-trial mode, where a lower best time is better, saved s
 **Verified:** A scripted test in Node built a Smithy, hired at the Tavern, and pressed Space at the Smithy. The villager became the Blacksmith, and the next Space opened the forge.
 
 **Follow-up:** "No, just make the keybinds different or make it an option in the forge." Now Space at the Smithy always opens the forge. While it has no Blacksmith, the forge's first option is "Put an idle villager to work as Blacksmith". If nobody is idle, that option reads "No Blacksmith yet", and choosing it says to hire at the Tavern first. Menu options that are greyed out can now explain why, instead of always saying "can't afford". Verified with a scripted test: the forge with nobody idle, then hire, assign through the forge, and the forge again.
+
+## 22. Own domain live, and Colony controls untangled — 2026-10-11
+
+**Asked:** The user owns graydates.com, which already serves a GitHub Pages site. Then: "The build button shouldn't be Shift, it should be B. Space is interact, that's fine. But Shift doing build and a bunch of other things that overlap is very hard to deal with."
+
+**Produced:**
+- **Domain.** graydates.com already pointed at the user's GitHub Pages site, so I recommended a subdomain instead of taking over the bare domain. The user then did both steps in their own accounts:
+  - a CNAME `games` → `gamebarywolf.netlify.app` in GoDaddy;
+  - in Netlify, adding the domain, then the TXT ownership record Netlify asked for.
+
+  I checked the DNS from Google's and Cloudflare's resolvers, diagnosed the first 404 as "the domain isn't added in Netlify yet", and confirmed the final result: https://games.graydates.com serves The Game Bar over HTTPS, and graydates.com still serves the old site.
+- **Controls, one job per key:**
+  - Space: interact, choose and place.
+  - **B: open or close the build menu.**
+  - **X (or Backspace): close any menu, or cancel placing a building.**
+  - Shift: only blocks in the raid.
+
+  `Input` gained two optional actions (`build`, `back`) that only the one-player key scheme binds, so the two-player games are untouched. Phone pads get Build and Close buttons. Every hint, prompt and how-to line was updated. The cheat BLOOM became SEEDS, since typing its B would open the build menu.
+
+**Verified:** A scripted test checked each key:
+- Shift outside the raid does nothing.
+- B opens the build menu, and B again closes it.
+- X closes it.
+- B, then Space, starts placing; X cancels it, and Space builds.
+
+All six other games' fairness runs still pass. The setup screen lists the new controls and SEEDS, with no console errors.

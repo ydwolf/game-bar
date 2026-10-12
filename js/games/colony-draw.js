@@ -300,7 +300,7 @@ function drawPlayerText(ctx, c) {
   const sy = (pl.y - c.view.y) * z;
   if (!c.raid && !c.menu) {
     let prompt;
-    if (c.placing) prompt = "Space: build here · Shift: cancel · walk to move it";
+    if (c.placing) prompt = "Space: build here · X: cancel · walk to move it";
     else if (c.mg) prompt = "Press Space when the marker is in the green";
     else prompt = c.promptFor(c.targetAt());
     if (prompt) pill(ctx, prompt, sx, sy - 90, "#f3c35a");
@@ -377,7 +377,7 @@ function drawMenu(ctx, c) {
     fitText(ctx, `${idx === m.sel ? "▶ " : ""}${it.label}`, lx, ry + 8, 12, it.seed ? 200 : w - 40, col);
     if (it.detail) fitText(ctx, it.detail, lx, ry + 20, 9, it.seed ? 200 : w - 40, it.ok ? "#6b5540" : "rgba(107, 85, 64, 0.5)");
   }
-  text(ctx, "↑↓ choose · Space select · Shift close", x + w - 12, y + h - 9, 9, "#6b5540", "right");
+  text(ctx, "↑↓ choose · Space select · X close", x + w - 12, y + h - 9, 9, "#6b5540", "right");
 }
 
 // Four little bars for a seed's stats: walk, fight, heal, work

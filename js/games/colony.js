@@ -319,7 +319,7 @@ function createColony(input) {
   }
 
   function hire() {
-    if (c.idle().length >= c.openSlots().length) return fail("Build a workplace with an empty job first (Shift to build)");
+    if (c.idle().length >= c.openSlots().length) return fail("Build a workplace with an empty job first (B to build)");
     const cost = c.hireCost();
     if (!c.canPay(cost)) return fail(`Hiring costs ${costText(cost)}`);
     pay(cost);
@@ -556,13 +556,14 @@ function createColony(input) {
     });
     const where = { village: "village", forest: "forest", mine: "mine", farm: "farm", raid: "raid room" }[pl.zone];
     openMenu(`Build in the ${where}`, items, "Nothing to build here — try the village, forest, mine or farm");
+    if (c.menu) c.menu.build = true;
   }
 
   function runMenu(input) {
     const m = c.menu;
     if (input.pressed.up) m.sel = (m.sel + m.items.length - 1) % m.items.length;
     if (input.pressed.down) m.sel = (m.sel + 1) % m.items.length;
-    if (input.pressed.action2) {
+    if (input.pressed.back || (m.build && input.pressed.build)) {
       c.menu = null;
       return;
     }
@@ -598,7 +599,7 @@ function createColony(input) {
   }
 
   function runPlacing(input) {
-    if (input.pressed.action2) {
+    if (input.pressed.back || input.pressed.build) {
       c.placing = null;
       return say("Cancelled");
     }
@@ -864,8 +865,8 @@ function createColony(input) {
     const t = c.trophies;
     if (!c.villagers.length && !c.all("woodhut").length) {
       if (pl.zone !== "forest" && have("log") < BUILDINGS.woodhut.cost.log) return ["Head west to the Forest and chop wood (Space at a tree)", "forest"];
-      if (have("log") < BUILDINGS.woodhut.cost.log) return [`Chop ${BUILDINGS.woodhut.cost.log} wood, then build a Woodchopper Hut here (Shift)`, "forest"];
-      return ["Build a Woodchopper Hut: in the Forest, press Shift and pick it", "forest"];
+      if (have("log") < BUILDINGS.woodhut.cost.log) return [`Chop ${BUILDINGS.woodhut.cost.log} wood, then build a Woodchopper Hut here (press B)`, "forest"];
+      return ["Build a Woodchopper Hut: in the Forest, press B and pick it", "forest"];
     }
     if (c.idle().length && c.openSlots().length) return ["You have an idle villager — stand at a building with an empty job and press Space", c.openSlots()[0]];
     if (c.openSlots().length && c.idle().length < c.openSlots().length) {
@@ -919,7 +920,7 @@ function createColony(input) {
     input.pendingFire = false; // clicks only matter in the raid
 
     if (c.menu) return runMenu(input);
-    if (c.placing && (input.pressed.action || input.pressed.action2)) return runPlacing(input);
+    if (c.placing && (input.pressed.action || input.pressed.back || input.pressed.build)) return runPlacing(input);
 
     // Walking (the minigame holds you still)
     const mx = (input.held.right ? 1 : 0) - (input.held.left ? 1 : 0);
@@ -964,7 +965,7 @@ function createColony(input) {
       return;
     }
     if (c.placing) return;
-    if (input.pressed.action2) return openBuildMenu();
+    if (input.pressed.build) return openBuildMenu();
     if (input.pressed.action) act();
   };
 
@@ -1015,7 +1016,7 @@ function createColony(input) {
         for (let i = 0; i < 4; i++) newVillager("soldier", barracks()).tool = 2;
         return "4 soldiers with iron swords";
       }
-      case "BLOOM":
+      case "SEEDS":
         addTo(c.seeds, "9/9/9/9", 4);
         c.bestSeed = [9, 9, 9, 9];
         return "+4 seeds of 9/9/9/9";
@@ -1057,7 +1058,7 @@ function createRound({ inputs }) {
     "Perfect Tomato — breed a 10/10/10/10 seed at the bench",
     "Raid — beat the raid room with your soldiers",
     "Villagers are faster than you: hire them, give them huts and tools.",
-    "Space: act · Shift: build (and block in the raid) · click to attack",
+    "Space: act · B: build · X: close · raid: Shift blocks, click attacks",
   ];
 
   r.update = (dt) => {
@@ -1091,7 +1092,7 @@ const CHEATS = {
   CROWD: "5 idle villagers",
   TOOLS: "legendary tools for you and everyone",
   ARMY: "4 soldiers with iron swords (and Barracks)",
-  BLOOM: "four 9/9/9/9 seeds",
+  SEEDS: "four 9/9/9/9 seeds",
   HAUL: "every hut's pile straight to the Hall",
 };
 
@@ -1107,7 +1108,7 @@ export default {
   howTo: [
     "Your time is your score: collect all three trophies as fast as you can — the Resource Master sculpture, a perfect 10/10/10/10 tomato, and the raid.",
     "The village is in the middle. Walk off an edge to travel: the Forest (west), the Mine (north), the Farm (south) and the Raid Room (east).",
-    "Space does whatever you're next to: chop, mine, harvest, pick up, store, hire. Shift opens the build menu — build as many huts as you like.",
+    "Space does whatever you're next to: chop, mine, harvest, pick up, store, hire. B opens the build menu (B or X closes it) — build as many huts as you like.",
     "Hire villagers at the Tavern (you need a building with an empty job), then press Space at that building to put one to work. One villager per hut.",
     "The Smithy upgrades tools: Stone, Iron, Legendary. Every villager's tool multiplies what they bring back. Couriers carry hut piles to the Hall.",
     "At the Farm, cross two seeds on the bench: the child gets each stat from a parent, then one stat moves up or down by one. Plant your best to get more seeds.",
@@ -1120,10 +1121,10 @@ export default {
       name: "Founder",
       emoji: "🏆",
       goal: "Win all three trophies as fast as you can. Do every job yourself — or hire villagers, who are faster.",
-      controls: { dirs: "walk (dodge in the raid)", action: "act / attack", action2: "build menu / block" },
+      controls: { dirs: "walk (dodge in the raid)", action: "act / choose / attack", build: "build menu", back: "close a menu / cancel", action2: "block (raid only)" },
       pointer: "aim",
       pointerHint: "Click to attack in the raid",
-      pad: { dirs: "four", action: "Act", action2: "Build" },
+      pad: { dirs: "four", action: "Act", build: "Build", back: "Close", action2: "Block" },
     },
   ],
   cheats: Object.fromEntries(Object.entries(CHEATS).map(([code, does]) => [code, { does, run: (r) => r.colony.cheat(code) }])),

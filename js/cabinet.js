@@ -34,6 +34,8 @@ export function describeControls(game, humans, side) {
   if (c.dirs) parts.push(`${keys.dirs}: ${c.dirs}`);
   if (c.action) parts.push(`${keys.action}: ${c.action}`);
   if (c.action2) parts.push(`${keys.action2}: ${c.action2}`);
+  if (c.build && keys.build) parts.push(`${keys.build}: ${c.build}`);
+  if (c.back && keys.back) parts.push(`${keys.back}: ${c.back}`);
   if (pointerSeat(game, humans) === side && role.pointerHint) parts.push(role.pointerHint);
   return parts.join(" · ");
 }
@@ -409,6 +411,8 @@ export function createCabinet({ onSwap }) {
     }
     const acts = document.createElement("div");
     acts.className = "pad-group";
+    if (cfg.back) acts.appendChild(padButton(side, "back", cfg.back, "wide alt"));
+    if (cfg.build) acts.appendChild(padButton(side, "build", cfg.build, "wide alt"));
     if (cfg.action2) acts.appendChild(padButton(side, "action2", cfg.action2, "wide alt"));
     if (cfg.action) acts.appendChild(padButton(side, "action", cfg.action, "wide"));
     row.appendChild(acts);
