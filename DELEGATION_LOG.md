@@ -537,3 +537,13 @@ All six other games' fairness runs still pass. The setup screen lists the new co
   - Breakout: a speeding ball first gave the computer Paddle 95–100% of rounds. With a gentler speed-up and faster Mason bricks (0.17 per second at level 1 up to 0.42 at level 5), the Paddle wins 44–58%.
 - **In the browser:** frames of both games, including the brick slots, the green gap and the Pear's arrow.
 - *Still to do:* the user should replay both as the human side. For a human, being able to read the Pear and the ball speeding up matter more than raw speed; the computer players already saw everything.
+
+## 24. Which version is live? — 2026-10-12
+
+**Asked:** "How can I tell what version reaches graydates?"
+
+**Found:** I compared the live files on games.graydates.com with the repo. The live site was still the `c20b28e` commit: the two newer pushes, `6003d09` (the B/X controls) and `517ee22` (the Snake and Breakout fixes), are on GitHub but Netlify hasn't deployed them. GitHub shows no Netlify status for either, so the cause is on the Netlify side, where I have no access. It could be a failed or stuck build, paused auto-publishing, or the site's repo link.
+
+**Produced:** A version stamp. The Netlify build command now writes `version.json` with the commit ID and build time, using Netlify's `COMMIT_REF`. The page footer shows "build 517ee22 (2026-10-12 01:14 UTC)", or "local copy" when there's no stamp. `version.json` is in `.gitignore`, since only Netlify creates it.
+
+**Verified:** I ran the build command locally with a sample commit ID and it wrote the expected file. The footer can only be checked once Netlify deploys again.

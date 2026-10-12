@@ -1,7 +1,8 @@
-# Plain static site: no build step, serve the repo root as-is.
+# Plain static site served as-is. The only "build" step stamps which commit is live into
+# version.json (Netlify sets COMMIT_REF), so the page footer can show the deployed version.
 [build]
   publish = "."
-  command = "echo 'Static site - no build step'"
+  command = '''printf '{"commit":"%s","built":"%s"}' "$(echo $COMMIT_REF | cut -c1-7)" "$(date -u '+%Y-%m-%d %H:%M UTC')" > version.json'''
 
 [[headers]]
   for = "/*"

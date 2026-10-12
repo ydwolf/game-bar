@@ -184,3 +184,12 @@ function route() {
 renderMenu();
 window.addEventListener("hashchange", route);
 route();
+
+// Show which commit this copy of the site was built from (written by the Netlify build)
+fetch("version.json", { cache: "no-store" })
+  .then((res) => (res.ok ? res.json() : null))
+  .then((v) => {
+    const footer = document.querySelector(".site-footer");
+    if (footer) footer.append(v && v.commit ? ` · build ${v.commit} (${v.built})` : " · local copy");
+  })
+  .catch(() => {});
