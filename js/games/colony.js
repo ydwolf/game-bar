@@ -15,7 +15,7 @@
 // Files: colony-config.js (every number, all placeholders), colony-raid.js (the fight),
 // colony-draw.js (everything on screen), colony-art.js (the shapes).
 import { clamp, rand } from "../util.js";
-import { sfx } from "../sound.js";
+import { sfx, ambient } from "../sound.js";
 import { CONFIG as K } from "./colony-config.js";
 import { startRaid, updateRaid } from "./colony-raid.js";
 import { draw } from "./colony-draw.js";
@@ -140,6 +140,9 @@ function createColony(input) {
     hint: null,
     nextId: 1,
     bestSeed: null,
+    stepT: 0, // footsteps
+    ambT: 2, // the next background sound (a bird, a drip…)
+    last: { x: 0, y: 0 },
   };
   for (const s of K.startSeeds) addTo(c.seeds, seedKey(s), 3);
   c.bestSeed = K.startSeeds.slice().sort((a, b) => seedTotal(b) - seedTotal(a))[0];
@@ -625,6 +628,13 @@ function createColony(input) {
   // Each villager runs a queue of steps: walk somewhere (in any zone — they route through the
   // village) or wait and then do something. When the queue empties they decide what's next.
 
+  // A villager's work is heard when they're in your zone, louder the closer they are
+  function hear(v, name, loud = 0.6) {
+    if (v.zone !== pl.zone) return;
+    const d = Math.hypot(v.x - pl.x, v.y - pl.y);
+    if (d < 360) sfx(name, { volume: loud * (1 - d / 400), pitch: 0.9 + Math.random() * 0.2 });
+  }
+
   const walkTo = (zone, x, y) => ({ type: "walk", zone, x, y });
   const wait = (t, done) => ({ type: "wait", t, done });
   const home = (v) => c.buildings.find((b) => b.id === v.building);
@@ -662,6 +672,7 @@ function createColony(input) {
           if (!plot.seed || plot.grow < 1) return false;
           harvest(plot, b.stock.tomatoes, v.level);
           v.carry = "tomato";
+          hear(v, "rustle");
           if (++v.xp >= K.farmerLevelEvery && v.level < K.farmerMaxLevel) {
             v.xp = 0;
             v.level++;
@@ -708,6 +719,7 @@ function createColony(input) {
           c.hall.stone += load.stone;
           for (const [k, n] of Object.entries(load.tomatoes)) addTo(c.hall.tomatoes, k, n);
           v.carry = null;
+          hear(v, "place", 0.35);
         }),
       ];
     },
@@ -722,6 +734,7 @@ function createColony(input) {
           if (target.tool >= c.smithTarget || !hallPays(cost)) return false;
           hallPay(cost);
           target.tool++;
+          hear(v, "anvil", 0.8);
         }),
       ];
     },
@@ -733,6 +746,7 @@ function createColony(input) {
           const used = takeBest(c.hall.tomatoes, 2);
           if (used.length < 2) return false;
           addTo(b.stock.tomatoes, used[0], K.mealsPerCook);
+          hear(v, "sizzle");
         }),
       ];
     },
@@ -756,6 +770,7 @@ function createColony(input) {
         if (!ready(node)) return false;
         take(node);
         v.carry = item;
+        hear(v, item === "log" ? "chop" : "clink");
       }),
       walkTo(b.zone, b.x, b.y + b.h / 2 + 10),
       wait(0.2, () => {
@@ -891,9 +906,35 @@ function createColony(input) {
 
   // ---------- one frame ----------
 
+  // The sound of the place you're in: a quiet bed, the odd bird or drip, and your footsteps
+  const AMBIENT = {
+    village: [["bird", 3, 7]],
+    forest: [["bird", 1.2, 3.5], ["rustle", 4, 9]],
+    farm: [["cricket", 1.5, 4], ["bird", 4, 9]],
+    mine: [["drip", 1.8, 4.5], ["clink", 6, 12]],
+    raid: [["crackle", 0.4, 1.2]],
+  };
+  function soundscape(dt) {
+    ambient(pl.zone);
+    if ((c.ambT -= dt) <= 0) {
+      const opts = AMBIENT[pl.zone];
+      const [name, lo, hi] = opts[Math.floor(Math.random() * opts.length)];
+      sfx(name, { volume: 0.5 + Math.random() * 0.4, pitch: 0.85 + Math.random() * 0.3 });
+      c.ambT = rand(lo, hi);
+    }
+    const moved = Math.hypot(pl.x - c.last.x, pl.y - c.last.y) > 0.5;
+    c.last = { x: pl.x, y: pl.y };
+    if (moved && (c.stepT -= dt) <= 0) {
+      c.stepT = 0.3;
+      c.stepAlt = !c.stepAlt;
+      sfx("step", { volume: 0.55, pitch: c.stepAlt ? 1.1 : 0.9 });
+    }
+  }
+
   c.update = (dt) => {
     const input = c.input;
     c.time += dt;
+    soundscape(dt);
     if (c.msg && (c.msg.t -= dt) <= 0) c.msg = null;
     if (c.fade > 0) c.fade = Math.max(0, c.fade - dt * 3);
 

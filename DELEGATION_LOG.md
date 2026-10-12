@@ -547,3 +547,20 @@ All six other games' fairness runs still pass. The setup screen lists the new co
 **Produced:** A version stamp. The Netlify build command now writes `version.json` with the commit ID and build time, using Netlify's `COMMIT_REF`. The page footer shows "build 517ee22 (2026-10-12 01:14 UTC)", or "local copy" when there's no stamp. `version.json` is in `.gitignore`, since only Netlify creates it.
 
 **Verified:** I ran the build command locally with a sample commit ID and it wrote the expected file. The footer can only be checked once Netlify deploys again.
+
+## 25. Colony sound, and Netlify out of credits — 2026-10-12
+
+**Asked:** "Life in the Colony should have more sound — walking, etc. It's too quiet when I'm standing still." Then the user shared Netlify's Deploys page and asked: "What should I use instead?"
+
+**Found:** Netlify had paused production deploys because the team ran out of credits for this billing cycle. `517ee22` and `4bd0d63` show "Skipped due to account credit usage exceeded", and the site stays live on `c20b28e`. Part of the cause is that every push to `main` costs a production deploy, and I had been pushing after each small change.
+
+**Advice given:** The rubric requires "served by Netlify at your own domain with continuous deployment", so changing hosts would break it unless the teacher allows it. The options are to wait for the credit reset or upgrade the Netlify team. **Change of practice:** I now commit locally and push only when the user asks, so a batch of changes costs one deploy.
+
+**Produced:** more sound in Life in the Colony.
+- **Footsteps** whenever you walk, alternating in pitch, in every zone and in the raid.
+- **A quiet background for each zone:** wind in the village and farm, a breezier forest, a low rumble in the mine and a deep hum in the raid room. It comes from a new `ambient(place)` in `sound.js`; a game calls it every frame, and the background fades out on its own when the calls stop (paused, page left, round over).
+- **Occasional sounds of the place:** birds in the village and forest, rustling leaves, crickets on the farm, drips and distant clinks in the mine, torch crackle in the raid room.
+- **Workers can be heard nearby**, louder the closer they are: woodcutters chopping, miners clinking, farmers rustling, the Blacksmith's anvil, the Cook's sizzle, and couriers unloading at the Hall.
+- `sound.js` gained nine sounds: step, rustle, clink, anvil, sizzle, bird, drip, cricket and crackle.
+
+**Verified:** In the browser, every new sound and every zone's background played without errors. In Node, the colony key tests and all six fairness runs still pass, since sound is a no-op there. Not yet heard by a person. Committed locally; not pushed, because Netlify deploys are paused.

@@ -4,7 +4,7 @@
 //   sfx("coin");                 // play a named sound
 //   sfx("bounce", { pitch: 1.2, volume: 0.5 });   // optional pitch multiplier / volume (0..1)
 //
-// Exports: sfx(name, opts?), setMuted(bool), isMuted(), toggleMuted(), SOUND_NAMES
+// Exports: sfx(name, opts?), ambient(place), setMuted(bool), isMuted(), toggleMuted(), SOUND_NAMES
 //
 // Sounds:
 //   blip     short UI / menu tick            tick     quiet clock tick
@@ -210,6 +210,30 @@ const SOUNDS = {
     ["t", { type: "square", f0: 1047, dur: 0.35, vol: 0.28, delay: 0.3 }],
   ],
   error: [["t", { type: "sawtooth", f0: 140, dur: 0.14, vol: 0.3 }]],
+  // Small sounds for living in a place (Life in the Colony)
+  step: [["n", { dur: 0.05, vol: 0.35, q0: 900, q1: 300 }]],
+  rustle: [["n", { dur: 0.18, vol: 0.3, filter: "bandpass", q0: 2400, q1: 1200, Q: 0.8 }]],
+  clink: [
+    ["t", { type: "triangle", f0: 2400, f1: 2200, dur: 0.09, vol: 0.25 }],
+    ["n", { dur: 0.04, vol: 0.3, filter: "highpass", q0: 2500 }],
+  ],
+  anvil: [
+    ["t", { type: "triangle", f0: 1760, dur: 0.35, vol: 0.22 }],
+    ["t", { type: "sine", f0: 2637, dur: 0.25, vol: 0.12 }],
+  ],
+  sizzle: [["n", { dur: 0.35, vol: 0.18, filter: "highpass", q0: 4000, attack: 0.05 }]],
+  bird: [
+    ["t", { type: "sine", f0: 2600, f1: 3400, dur: 0.07, vol: 0.12 }],
+    ["t", { type: "sine", f0: 2800, f1: 3800, dur: 0.06, vol: 0.1, delay: 0.1 }],
+    ["t", { type: "sine", f0: 3000, f1: 2400, dur: 0.09, vol: 0.09, delay: 0.19 }],
+  ],
+  drip: [["t", { type: "sine", f0: 1400, f1: 700, dur: 0.12, vol: 0.18 }]],
+  cricket: [
+    ["t", { type: "square", f0: 4200, dur: 0.02, vol: 0.05 }],
+    ["t", { type: "square", f0: 4200, dur: 0.02, vol: 0.05, delay: 0.05 }],
+    ["t", { type: "square", f0: 4200, dur: 0.02, vol: 0.05, delay: 0.1 }],
+  ],
+  crackle: [["n", { dur: 0.05, vol: 0.2, filter: "bandpass", q0: 1500, Q: 4 }]],
 };
 
 export const SOUND_NAMES = Object.keys(SOUNDS);
@@ -229,4 +253,69 @@ export function sfx(name, opts = {}) {
   } catch {
     /* never let sound break a game */
   }
+}
+
+// ---------- Ambient beds ----------
+// A quiet, continuous background for a place: soft filtered noise (wind, a cave's rumble,
+// a stone room). A game calls ambient(name) every frame it's running; if the calls stop —
+// paused, left the page, round over — the bed fades out on its own.
+
+const BEDS = {
+  village: { filter: "lowpass", freq: 700, vol: 0.05 },
+  forest: { filter: "bandpass", freq: 900, vol: 0.07, Q: 0.6 },
+  farm: { filter: "lowpass", freq: 900, vol: 0.05 },
+  mine: { filter: "lowpass", freq: 180, vol: 0.12 },
+  raid: { filter: "lowpass", freq: 260, vol: 0.1 },
+};
+let bed = null; // { src, filter, gain, name }
+let bedSeen = 0;
+
+export function ambient(name) {
+  if (!AC || !ctx || ctx.state !== "running") return;
+  try {
+    bedSeen = performance.now();
+    const spec = BEDS[name];
+    if (!spec) return;
+    if (!bed) {
+      const src = ctx.createBufferSource();
+      src.buffer = noiseBuf;
+      src.loop = true;
+      const filter = ctx.createBiquadFilter();
+      const gain = ctx.createGain();
+      gain.gain.value = 0.0001;
+      src.connect(filter).connect(gain).connect(master);
+      src.start();
+      bed = { src, filter, gain, name: null };
+    }
+    if (bed.name !== name) {
+      const t = ctx.currentTime;
+      bed.filter.type = spec.filter;
+      bed.filter.Q.value = spec.Q || 0.7;
+      bed.filter.frequency.setTargetAtTime(spec.freq, t, 0.3);
+      bed.gain.gain.setTargetAtTime(spec.vol, t, 0.5);
+      bed.name = name;
+    }
+  } catch {
+    /* never let sound break a game */
+  }
+}
+
+if (HAS_WINDOW && AC) {
+  setInterval(() => {
+    if (!bed || performance.now() - bedSeen < 400) return;
+    try {
+      bed.gain.gain.setTargetAtTime(0.0001, ctx.currentTime, 0.25);
+      const old = bed;
+      bed = null;
+      setTimeout(() => {
+        try {
+          old.src.stop();
+        } catch {
+          /* already stopped */
+        }
+      }, 1500);
+    } catch {
+      bed = null;
+    }
+  }, 250);
 }
